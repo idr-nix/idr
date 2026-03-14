@@ -1,0 +1,43 @@
+name:
+  type: str
+state_version:
+  type: str
+  default: "{{ '$IDR_NIXOS_RELEASE' | expandvars }}"
+  when: false
+project_name:
+  type: str
+  default: "{{ '$IDR_PROJECT_NAME' | expandvars }}"
+  when: false
+  validator: |
+    {% if project_name == '$IDR_PROJECT_NAME' %}
+    raise ValueError("$IDR_PROJECT_NAME should be defined.")
+    {% endif %}
+name_for_env:
+  type: str
+  default: "{{ ((project_name + '_' + name) | regex_replace('[^a-zA-Z0-9_]', '_')).upper() }}"
+  when: false
+path_relative_to_project:
+  type: str
+  default: "{{ (_copier_conf.dst_path | realpath).split('/')[-3:] | join('/') }}"
+  when: false
+id:
+  type: str
+  default: >-
+    {% for _ in range(12) %}{{ '0123456789abcdef' | random }}{% endfor %}
+  when: false
+example_mac:
+  type: str
+  default: >-
+    02{% for _ in range(5) %}:{{ '0123456789abcdef' | random }}{{ '0123456789abcdef' | random }}{% endfor %}
+  when: false
+_skip_if_exists:
+  - flake-module.nix
+  - "{{ name }}/flake-module.nix"
+  - "{{ name }}/configuration.nix"
+  - "{{ name }}/hardware-specific.nix"
+  - "{{ name }}/secrets.enc.json"
+  - "{{ name }}/disk-key.enc.json"
+_tasks:
+  - chmod 0600 flake-module.nix {{ name }}/{flake-module,configuration,hardware-specific}.nix {{ name }}/{secrets,disk-key}.enc.json
+  - git add flake-module.nix {{ name }}/{flake-module,configuration,hardware-specific}.nix {{ name }}/{secrets,disk-key}.enc.json
+  - idr-setup-machine {{ name }}

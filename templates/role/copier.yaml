@@ -1,0 +1,15 @@
+name:
+  type: str
+id:
+  type: str
+  default: >-
+    {% for _ in range(12) %}{{ '0123456789abcdef' | random }}{% endfor %}
+  when: false
+_skip_if_exists:
+  - flake-module.nix
+  - "{{ name }}/flake-module.nix"
+  - "{{ name }}/nixos-module.nix"
+  - "{{ name }}/meta.json"
+_tasks:
+  - [chmod, u+rw, flake-module.nix, "{{ name }}/flake-module.nix", "{{ name }}/nixos-module.nix", "{{ name }}/meta.json"]
+  - [git, add, --, flake-module.nix, "{{ name }}/flake-module.nix", "{{ name }}/nixos-module.nix", "{{ name }}/meta.json"]

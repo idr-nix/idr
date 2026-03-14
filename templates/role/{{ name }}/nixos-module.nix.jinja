@@ -1,0 +1,12 @@
+top: {
+  config,
+  lib,
+  ...
+}: let
+  roleName = "{{ name }}-${(lib.importJSON ./meta.json).id}";
+  cfg = config.idr.roles.${roleName};
+in {
+  options.idr.roles.${roleName}.enable = lib.mkEnableOption "the {{ name }} role";
+
+  config = lib.mkIf cfg.enable {};
+}
