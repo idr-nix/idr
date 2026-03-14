@@ -1,0 +1,8 @@
+name:
+  type: str
+_skip_if_exists:
+  - "{{ name }}/flake-module.nix"
+  - "{{ name }}/nixos-module.nix"
+_tasks:
+  - [chmod, u+rw, "{{ name }}/flake-module.nix", "{{ name }}/nixos-module.nix"]
+  - [git, add, --, "{{ name }}/flake-module.nix", "{{ name }}/nixos-module.nix"]

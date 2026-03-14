@@ -1,0 +1,20 @@
+name:
+  type: str
+  when: false
+  default: "{{ (('$IDR_PROJECT_NAME' | expandvars) == '$IDR_PROJECT_NAME' or ('$IDR_PROJECT_NAME' | expandvars) == 'idr') | ternary((_folder_name | regex_replace('[^a-zA-Z0-9_-]', '-')), ('$IDR_PROJECT_NAME' | expandvars)) }}"
+idr_path:
+  type: str
+_skip_if_exists:
+  - flake.nix
+  - flake.lock
+  - .envrc
+  - .env
+  - nix/.editorconfig
+  - SUMMARY.md
+  - README.md
+  - book.toml
+_tasks:
+  - chmod u+rw nix .envrc .env flake.nix flake.lock nix/.editorconfig SUMMARY.md README.md book.toml
+  - git init
+  - git add flake.nix flake.lock .envrc nix/.editorconfig SUMMARY.md README.md book.toml
+  - nix --offline -vL develop -c idr-setup-project

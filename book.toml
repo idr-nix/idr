@@ -1,0 +1,26 @@
+[book]
+title = "idr"
+src = "."
+
+[output.html]
+default-theme = "Ayu"
+mathjax-support = true
+
+[output.html.search]
+enable = true
+limit-results = 100
+teaser-word-count = 30
+use-boolean-and = true
+boost-title = 2
+boost-hierarchy = 1
+boost-paragraph = 1
+expand = true
+heading-split-level = 4
+copy-js = true
+
+[output.html.fold]
+enable = true
+level = 0
+
+[output.html.playground]
+editable = true

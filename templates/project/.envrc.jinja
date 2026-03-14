@@ -1,0 +1,20 @@
+#!/usr/bin/env bash
+
+watch_file flake.nix flake.lock .env .envrc.local
+watch_dir nix
+
+direnv_layout_dir() {
+  local data_dir="${PRJ_DATA_DIR:-$PWD/.data}"
+  local host_id=""
+  if [[ -f /etc/machine-id ]]; then
+    read -r host_id </etc/machine-id || true
+  fi
+  printf '%s\n' "$data_dir/${host_id:-$(hostname)}/direnv"
+}
+
+if [ -f .envrc.local ]; then
+  # shellcheck disable=SC1091
+  source ".envrc.local"
+else
+  use flake .
+fi

@@ -1,0 +1,34 @@
+top: {
+  pkgs,
+  lib,
+  config,
+  modulesPath,
+  ...
+}: {
+  imports =
+    lib.unique (
+      (builtins.attrValues top.inputs.idr.modules.nixos) ++ (builtins.attrValues top.inputs.self.modules.nixos)
+    )
+    ++ (top.idr-lib.importApplyAll top [
+      ./hardware-specific.nix
+    ]);
+
+  config = lib.mkMerge [
+    # misc
+    {
+      hardware.facter.reportPath = lib.mkIf (builtins.pathExists ./facter.json) ./facter.json;
+      networking.hostName = "{{ name }}";
+      system.stateVersion = "{{ state_version }}";
+
+      idr.preset.base = {
+        inherit (top) inputs;
+        id = "{{ id }}";
+        defaultSopsFile = ./secrets.enc.json;
+        preFormatFiles."/disk-key.txt" = {
+          sopsFile = ./disk-key.enc.json;
+          key = "disk_key";
+        };
+      };
+    }
+  ];
+}

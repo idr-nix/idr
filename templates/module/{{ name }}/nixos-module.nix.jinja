@@ -1,0 +1,29 @@
+top: {
+  config,
+  lib,
+  ...
+}: let
+  cfgs = lib.filterAttrs (_: cfg: cfg.enable) config.idr."{{ name }}";
+in {
+  key = toString ./nixos-module.nix;
+
+  options.idr."{{ name }}" = lib.mkOption {
+    description = "Named instances of the {{ name }} module.";
+    type = lib.types.attrsOf (lib.types.submodule {
+      options.enable = lib.mkOption {
+        description = "Whether to enable this {{ name }} instance.";
+        type = lib.types.bool;
+        default = true;
+      };
+    });
+    default = {};
+  };
+
+  config = lib.mkIf (cfgs != {}) {
+    # systemd.services = lib.concatMapAttrs (name: cfg: {
+    #   "{{ name }}-${name}" = {
+    #     # Configure this instance.
+    #   };
+    # }) cfgs;
+  };
+}

@@ -1,0 +1,36 @@
+{
+  description = "{{ name }}";
+  outputs = inputs @ {self, ...}:
+    inputs.flake-parts.lib.mkFlake {inherit inputs;} (top @ {
+      config,
+      withSystem,
+      moduleWithSystem,
+      ...
+    }: let
+      flakeModules = inputs.idr.lib.importFlakeModules ./nix top;
+    in {
+      idr.projectName = "{{ name }}";
+      flake.modules.flake = flakeModules;
+      imports = (inputs.nixpkgs.lib.attrValues flakeModules) ++ [inputs.idr.modules.flake.idr];
+      systems = import inputs.systems;
+    });
+  inputs = {
+    nixpkgs.url = "git+ssh://git@github.com/NixOS/nixpkgs?shallow=1&ref=nixos-26.05";
+    nixpkgs-unstable.url = "git+ssh://git@github.com/NixOS/nixpkgs?shallow=1&ref=nixos-unstable";
+    flake-parts.url = "git+ssh://git@github.com/hercules-ci/flake-parts?shallow=1";
+    systems.url = "git+ssh://git@github.com/nix-systems/default?shallow=1";
+    team = {
+      url = "file+file:///dev/null";
+      flake = false;
+    };
+    idr = {
+      url = "{{ idr_path }}";
+      inputs = {
+        nixpkgs.follows = "nixpkgs";
+        nixpkgs-unstable.follows = "nixpkgs-unstable";
+        systems.follows = "systems";
+        team.follows = "team";
+      };
+    };
+  };
+}

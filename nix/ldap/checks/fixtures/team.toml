@@ -1,0 +1,30 @@
+# Public fixtures. Alice's password is "alice-test-password".
+# The hash is intentionally the raw crypt format documented for team.toml.
+[alice]
+firstName = "Alice"
+lastName = "Example"
+mail = "alice@example.test"
+uidNumber = 10001
+sshPublicKey = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIPCjfTubUyal1nnOAAdy9qNsTRDmssHASJL6icimspdT ldap-test-fixture"
+agePublicKey = "age1kr8633f544g35jn9anlqnlegtfr3tlgggfxd30d8x9y73q2cquuq8x8eym"
+hashedPassword = "$6$idrldapteam$6mJhB2oQDDJn5O2.fr5CvGxt3s1VESvwpvj3RpvL48VkV6l0NO79uqUKW/gdqD1XVNApf11BjkI5VaDb29/ew."
+groups = ["operators", "engineering"]
+department = "Unrelated team metadata"
+
+[alice.sshAccess."fixture-machine"]
+expiresAt = "2099-01-01T00:00:00Z"
+
+# This member deliberately omits every optional LDAP attribute.
+[bob]
+firstName = "Bob"
+lastName = "Minimal"
+mail = "bob@example.test"
+
+# System identities are not LDAP users and need no personal attributes.
+["unlock-server-1e6f6e96b47c"]
+system = true
+groups = ["unlock-server"]
+hostname = "192.0.2.40"
+port = 64998
+sshPublicKey = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIPsWVu+D+kh5+H3bFWqcqF8M5QPB9eB9nny5QJn29a+1"
+agePublicKey = "age1ppz7rsx6djul63rm70t65whuzgmxhx805ptncy7s343drsneh5as0wkvfu"

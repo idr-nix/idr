@@ -1,0 +1,30 @@
+# direnv customization
+/.envrc.local
+
+# generated documentation
+/docs/generated
+
+# mdbook generated website
+/book
+
+# devshell state
+/.data/*
+!/.data/machine-host-key/
+/.data/machine-host-key/*
+!/.data/machine-host-key/example-*
+
+# pre-commit configuration
+/.pre-commit-config.yaml
+
+# nix build symlinks
+/result
+/result-*
+
+# nixos test VM
+/*-efi-vars.fd
+
+# generated SOPS configuration
+/.sops.yaml
+
+# local environment
+/.env

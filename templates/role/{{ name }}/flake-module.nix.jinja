@@ -1,0 +1,3 @@
+top: {lib, ...}: {
+  flake.modules.nixos."role-{{ name }}" = lib.modules.importApply ./nixos-module.nix top;
+}

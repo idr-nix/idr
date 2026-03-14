@@ -1,0 +1,237 @@
+top: moduleArgs @ {
+  pkgs,
+  lib,
+  config,
+  modulesPath,
+  ...
+}: let
+  passwordFile =
+    lib.mkIf
+    (config.idr.preset.base.preFormatFiles ? "/disk-key.txt")
+    config.idr.preset.base.preFormatFiles."/disk-key.txt".path;
+in {
+  config = {
+    # Setup impermanence with zfs dataset.
+    idr.preset.impermanence.rootDataset = "p1/local/root";
+
+    # disko disks & topology
+    disko.devices = {
+      disk = {
+        disk-1 = {
+          imageSize = "512110190592";
+          type = "disk";
+          device = "/dev/disk/by-id/nvme-eui.002538b141a23dfc";
+          content = {
+            type = "gpt";
+            partitions = {
+              boot = {
+                priority = 1;
+                name = "boot";
+                size = "1M";
+                type = "EF02";
+              };
+              esp = {
+                priority = 2;
+                name = "ESP";
+                size = "512M";
+                type = "EF00";
+                content = {
+                  type = "filesystem";
+                  format = "vfat";
+                  mountpoint = "/boot-1";
+                  mountOptions = ["noatime" "umask=177"];
+                };
+              };
+              p1 = {
+                priority = 3;
+                # left 6.94G for swap.
+                size = "470G";
+                content = {
+                  inherit passwordFile;
+                  type = "luks";
+                  name = "disk-1-p1";
+                  content = {
+                    type = "zfs";
+                    pool = "p1";
+                  };
+                };
+              };
+              swap = {
+                priority = 4;
+                size = "100%";
+                content = {
+                  type = "swap";
+                  discardPolicy = "both";
+                  randomEncryption = true;
+                };
+              };
+            };
+          };
+        };
+        disk-2 = {
+          imageSize = "512110190592";
+          type = "disk";
+          device = "/dev/disk/by-id/nvme-eui.002538b141a261e6";
+          content = {
+            type = "gpt";
+            partitions = {
+              boot = {
+                priority = 1;
+                name = "boot";
+                size = "1M";
+                type = "EF02";
+              };
+              esp = {
+                priority = 2;
+                name = "ESP";
+                size = "512M";
+                type = "EF00";
+                content = {
+                  type = "filesystem";
+                  format = "vfat";
+                  mountpoint = "/boot-2";
+                  mountOptions = ["noatime" "umask=177"];
+                };
+              };
+              p1 = {
+                priority = 3;
+                # left 6.94G for swap.
+                size = "470G";
+                content = {
+                  inherit passwordFile;
+                  type = "luks";
+                  name = "disk-2-p1";
+                  content = {
+                    type = "zfs";
+                    pool = "p1";
+                  };
+                };
+              };
+              swap = {
+                priority = 4;
+                size = "100%";
+                content = {
+                  type = "swap";
+                  discardPolicy = "both";
+                  randomEncryption = true;
+                };
+              };
+            };
+          };
+        };
+      };
+      zpool.p1 = {
+        options.ashift = "12";
+        mountpoint = "/p1";
+        mountOptions = [
+          "noatime"
+          "x-systemd.device-timeout=0"
+        ];
+        mode = {
+          topology = {
+            type = "topology";
+            vdev = [
+              {
+                mode = "mirror";
+                members = [
+                  "/dev/mapper/disk-1-p1"
+                  "/dev/mapper/disk-2-p1"
+                ];
+              }
+            ];
+          };
+        };
+        type = "zpool";
+        rootFsOptions = {
+          compression = "zstd";
+          atime = "off";
+        };
+
+        # disko datasets
+        datasets = {
+          "local" = {
+            type = "zfs_fs";
+            options = {
+              compression = "zstd";
+              atime = "off";
+              "syncoid:sync" = "false";
+            };
+          };
+          "local/root" = {
+            type = "zfs_fs";
+            options = {
+              compression = "zstd";
+              atime = "off";
+              "syncoid:sync" = "false";
+              "idr:snapshots" = "false";
+              mountpoint = "legacy";
+              recordsize = "128k";
+            };
+            mountpoint = "/";
+            mountOptions = [
+              "noatime"
+              "x-systemd.device-timeout=0"
+            ];
+            # Create blank snapshot for impermanence.
+            postCreateHook = ''
+              if ! zfs list -t snapshot p1/local/root@blank; then
+                zfs snapshot p1/local/root@blank
+              fi
+            '';
+          };
+          "local/nix" = {
+            type = "zfs_fs";
+            options = {
+              compression = "zstd";
+              atime = "off";
+              "syncoid:sync" = "false";
+              "idr:snapshots" = "false";
+              mountpoint = "legacy";
+              recordsize = "128k";
+            };
+            mountpoint = "/nix";
+            mountOptions = [
+              "noatime"
+              "x-systemd.device-timeout=0"
+            ];
+          };
+          # Persistent dataset for impermanence.
+          "local/persist" = {
+            type = "zfs_fs";
+            options = {
+              compression = "zstd";
+              atime = "off";
+              "syncoid:sync" = "false";
+              mountpoint = "legacy";
+              recordsize = "128k";
+            };
+            mountpoint = "/persist";
+            mountOptions = [
+              "noatime"
+              "x-systemd.device-timeout=0"
+            ];
+          };
+        };
+      };
+    };
+
+    # network
+    systemd.network.networks."02:d9:6c:90:70:e8" = {
+      matchConfig.MACAddress = "02:d9:6c:90:70:e8";
+      address = [
+        "192.0.2.10/24"
+        "2001:db8::10/64"
+      ];
+      routes = [
+        {
+          Gateway = "fe80::1";
+          GatewayOnLink = true;
+        }
+        {
+          Gateway = "192.0.2.1";
+        }
+      ];
+      linkConfig.RequiredForOnline = "routable";
+    };
+  };
+}
