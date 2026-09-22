@@ -85,15 +85,19 @@ export def with-disko-files [
     ) | each {|entry|
       let dest = $entry.dest_base | path join ($entry.path | str trim --char "/")
       let secrets_file = $entry.sopsFile
+      let extract_args = if $entry.key? == null {
+        []
+      } else {
+        ["--extract" ([$entry.key] | to json -r)]
+      }
 
-      print $"Decrypting ($entry.key) from ($secrets_file) to ($dest)"
+      print $"Decrypting ($secrets_file) to ($dest)"
 
       mkdir ($dest | path dirname)
-      let decrypted = sops decrypt --extract ($entry.key | to json | $"[($in)]") $secrets_file | complete
+      let decrypted = sops decrypt ...$extract_args --output $dest $secrets_file | complete
       if $decrypted.exit_code != 0 {
-        error make {msg: $"Could not decrypt ($entry.key): ($decrypted.stderr | str trim)"}
+        error make {msg: $"Could not decrypt ($secrets_file): ($decrypted.stderr | str trim)"}
       }
-      $decrypted.stdout | save -f $dest
       chmod 0600 $dest
     } | ignore
 
