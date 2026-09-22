@@ -17,6 +17,7 @@
         else null;
       ataMatch = builtins.match "ata-([A-Za-z0-9._-]{1,40})_([A-Za-z0-9._-]{1,20})" fileName;
       nvmeEuiMatch = builtins.match "nvme-eui\\.([0-9a-f]{16})" fileName;
+      nvmeNguidMatch = builtins.match "nvme-eui\\.([0-9a-f]{32})" fileName;
       nvmeSerialMatch = builtins.match "nvme-QEMU_NVMe_Ctrl_([A-Za-z0-9._-]{1,20})" fileName;
       scsiMatch = builtins.match "scsi-0QEMU_QEMU_HARDDISK_([A-Za-z0-9._-]{1,20})" fileName;
       scsiWwnMatch = builtins.match "scsi-3([0-9a-f]{16})" fileName;
@@ -36,6 +37,10 @@
       nvmeEui =
         if nvmeEuiMatch != null && builtins.head nvmeEuiMatch != "0000000000000000"
         then builtins.head nvmeEuiMatch
+        else null;
+      nvmeNguid =
+        if nvmeNguidMatch != null && builtins.head nvmeNguidMatch != "00000000000000000000000000000000"
+        then builtins.head nvmeNguidMatch
         else null;
       nvmeSerial =
         if nvmeSerialMatch != null
@@ -73,6 +78,8 @@
         then "ata"
         else if nvmeEui != null
         then "nvme-eui"
+        else if nvmeNguid != null
+        then "nvme-nguid"
         else if nvmeSerial != null
         then "nvme-serial"
         else if scsiSerial != null
@@ -89,6 +96,8 @@
         then ataSerial
         else if qemuType == "nvme-eui"
         then nvmeEui
+        else if qemuType == "nvme-nguid"
+        then nvmeNguid
         else if qemuType == "nvme-serial"
         then nvmeSerial
         else if qemuType == "scsi"
@@ -103,7 +112,7 @@
         then fileName
         else null;
       qemuBus =
-        if builtins.elem qemuType ["nvme-direct" "nvme-eui" "nvme-serial"]
+        if builtins.elem qemuType ["nvme-direct" "nvme-eui" "nvme-nguid" "nvme-serial"]
         then "nvme"
         else if builtins.elem qemuType ["scsi" "scsi-direct" "scsi-wwn" "wwn"]
         then "scsi"
@@ -196,6 +205,8 @@
       then disk.qemu.identifier
       else if qemuType == "nvme-eui"
       then "idr:eui:${toString busIndex}"
+      else if qemuType == "nvme-nguid"
+      then "idr:nguid:${toString busIndex}"
       else if qemuType == "nvme-direct"
       then "idr:nvme:${toString busIndex}"
       else if qemuType == "scsi-direct"
@@ -222,6 +233,11 @@
       nvmeId = "nvme-${toString idx}";
       bootIndex = "bootindex=${toString (idx + 1)}";
       imageName = lib.replaceStrings [","] [",,"] disk.imageName;
+      # Linux prefers a nonzero namespace UUID over the NGUID for its by-id path.
+      nvmeNamespaceId =
+        if disk.qemu.type == "nvme-nguid"
+        then "nguid=${disk.qemu.identifier},uuid=00000000-0000-0000-0000-000000000000"
+        else "eui64=0x${disk.qemu.identifier}";
       scsiAddress = "bus=scsi0.0,channel=0,scsi-id=${toString disk.qemu.busIndex},lun=0";
       ideBus =
         if disk.qemu.type == "ata"
@@ -233,14 +249,14 @@
         else null;
     in
       # Namespace boot indices publish an invalid firmware path in QEMU; use the controller.
-      if disk.qemu.type == "nvme-eui"
+      if builtins.elem disk.qemu.type ["nvme-eui" "nvme-nguid"]
       then [
         "-drive"
         "file=${imageName}.qcow2,format=qcow2,if=none,id=${driveId}"
         "-device"
         "nvme,id=${nvmeId},serial=${disk.qemu.serial},${bootIndex}"
         "-device"
-        "nvme-ns,bus=${nvmeId},nsid=1,eui64=0x${disk.qemu.identifier},drive=${driveId}"
+        "nvme-ns,bus=${nvmeId},nsid=1,${nvmeNamespaceId},drive=${driveId}"
       ]
       else if builtins.elem disk.qemu.type ["nvme-direct" "nvme-serial"]
       then [
