@@ -99,6 +99,8 @@ in {
         // {
           inherit (cfg.base) preFormatFiles postFormatFiles;
           inherit (cfg.base.inputs) self;
+          inherit (config.networking) hostId;
+          hostIdIsBigEndian = pkgs.stdenv.hostPlatform.isBigEndian;
         };
     }
     {

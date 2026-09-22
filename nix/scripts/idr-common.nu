@@ -101,6 +101,20 @@ export def with-disko-files [
       chmod 0600 $dest
     } | ignore
 
+    # Pool creation must use the installed system's host identity in both installers.
+    let hostid_files = if $metadata.hostId? != null {
+      if ($metadata.preFormatFiles | values | any {|file| $file.path == "/etc/hostid"}) {
+        error make {msg: "/etc/hostid is supplied from networking.hostId; remove the conflicting preFormatFiles entry."}
+      }
+      let dest = $pre_format_files_path | path join "etc/hostid"
+      let bytes = $metadata.hostId | decode hex
+      mkdir ($dest | path dirname)
+      (if $metadata.hostIdIsBigEndian { $bytes } else { $bytes | bytes reverse }) | save -f $dest
+      [{src: $dest, dst: "/etc/hostid"}]
+    } else {
+      []
+    }
+
     do $callback {
       temporary_directory: $tmp_dir
       pre_format_files_path: $pre_format_files_path
@@ -108,7 +122,7 @@ export def with-disko-files [
       pre_format_files: ($metadata.preFormatFiles | values | each {|file| ({
         src: ($pre_format_files_path | path join ($file.path | str trim --char "/"))
         dst: $file.path
-      })} | uniq)
+      })} | append $hostid_files | uniq)
       post_format_files: ($metadata.postFormatFiles | values | each {|file| ({
         src: ($post_format_files_path | path join ($file.path | str trim --char "/"))
         dst: $file.path

@@ -35,6 +35,8 @@ in {
     inherit diskKey;
     disks = map (disk: disk.path) (builtins.attrValues meta.disko.disks);
     inherit (meta.disko) preFormatFiles postFormatFiles;
+    hostId = meta.disko.hostId or null;
+    hostIdIsBigEndian = meta.disko.hostIdIsBigEndian or pkgs.stdenv.hostPlatform.isBigEndian;
     sopsFile = meta.defaultSopsFile;
     sourceSopsFile = sourceFile meta.defaultSopsFile;
     sourceDiskKeyFile = sourceFile (

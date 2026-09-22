@@ -246,6 +246,14 @@ def --wrapped main [
   let skip_substitutes = $no_substitute_on_destination or ($target.fastConnection and not $substitute_on_destination)
 
   with-disko-files $target {|files|
+    # The installer may have /etc/hostid symlinked into its read-only Nix store.
+    let pre_format_files = $files.pre_format_files | each {|file|
+      if $target.hostId? != null and $file.dst == "/etc/hostid" {
+        $file | update dst "/run/idr-anywhere/hostid"
+      } else {
+        $file
+      }
+    }
     let identity = if $options.identity_file == null and ($env.SSH_PRIVATE_KEY? | default "") != "" {
       let path = $files.temporary_directory | path join "ssh_identity"
       $"($env.SSH_PRIVATE_KEY)\n" | save $path
@@ -283,7 +291,7 @@ def --wrapped main [
           --flake $flake
           ...(if $skip_substitutes { ["--no-substitute-on-destination"] } else { [] })
           --extra-files $files.post_format_files_path
-          ...($files.pre_format_files | each {|file| ["--disk-encryption-keys" $file.dst $file.src]} | flatten)
+          ...($pre_format_files | each {|file| ["--disk-encryption-keys" $file.dst $file.src]} | flatten)
           --target-host $"($connection.user)@($hostname)"
           ...$identity
           ...$options.anywhere

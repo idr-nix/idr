@@ -29,7 +29,7 @@ in {
       '';
 
       services.zfs.autoScrub.enable = lib.mkDefault true;
-      boot.zfs.forceImportRoot = lib.mkDefault true;
+      boot.zfs.forceImportRoot = lib.mkDefault false;
     })
 
     (lib.optionalAttrs (options ? disko.zfs) (lib.mkIf (!config.boot.isContainer) {

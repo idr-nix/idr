@@ -3,6 +3,11 @@
   disks = map (disk: disk.path) (builtins.attrValues meta.disko.disks);
   diskoScript = pkgs.writers.writeNu "idr-disko" ''
     def main [] {
+      ${pkgs.lib.optionalString ((meta.disko.hostId or null) != null) ''
+      do --capture-errors {
+        ^${pkgs.coreutils}/bin/install -m 0644 -- /run/idr-anywhere/hostid /etc/hostid
+      }
+    ''}
       try {
         ^${meta.formatMount}/bin/disko-format-mount
         null
