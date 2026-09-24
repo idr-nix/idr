@@ -16,6 +16,7 @@
   - [NixOS QEMU host](./nix/qemu-host/README.md)
 - [Development services](./docs/development-services.md)
 - [Runtime secrets](./nix/secrets/README.md)
+  - [Service environments](./nix/systemd/README.md)
 - [Service ports](./docs/ports.md)
 - [Generated project files](./docs/generated-files.md)
 - [Server presets and containers](./nix/preset/README.md)
