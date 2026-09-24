@@ -32,10 +32,8 @@ https://xkcd.com/910/
 
 Before creating a machine configuration, choose a **short, memorable, and distinctive name** for the server.
 
-If you're unsure, you can generate one with:
-```sh
-nix shell nixpkgs#rust-petname -c petname
-```
+If you're unsure, pick any object from the night sky at https://stellarium-web.org/
+(a star, galaxy, nebula, etc.).
 
 Naming guidelines:
 - Use lowercase only
