@@ -44,9 +44,14 @@ def --wrapped main [
   let receiver = copy-receiver $node $arguments
 
   for file in $files {
-    let decrypted = sops decrypt --extract ($file.key | to json | $"[($in)]") $file.sopsFile | complete
+    let extract_args = if $file.key? == null {
+      []
+    } else {
+      ["--extract" ([$file.key] | to json -r)]
+    }
+    let decrypted = sops decrypt ...$extract_args $file.sopsFile | complete
     if $decrypted.exit_code != 0 {
-      error make {msg: $"Could not decrypt ($file.key): ($decrypted.stderr | str trim)"}
+      error make {msg: $"Could not decrypt ($file.sopsFile): ($decrypted.stderr | str trim)"}
     }
 
     let public_key = match $file.key {
@@ -83,7 +88,7 @@ def --wrapped main [
     if $copied.exit_code != 0 {
       error make {msg: $"Could not copy ($file.path): ($copied.stderr | str trim)"}
     }
-    print $"Copied ($file.key) to ($arguments | last):($file.path)"
+    print $"Copied ($file.sopsFile) to ($arguments | last):($file.path)"
   }
   remember-host-key $target $arguments
 }

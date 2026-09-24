@@ -65,8 +65,10 @@ in {
             default = cfg.base.defaultSopsFile;
           };
           key = lib.mkOption {
+            type = lib.types.nullOr lib.types.str;
+            default = null;
             description = ''
-              Key used to lookup in the sops file.
+              Key to extract from the SOPS file, or null to decrypt the entire file.
             '';
           };
         };
