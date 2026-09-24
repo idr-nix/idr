@@ -65,8 +65,9 @@ export def installation-status [arguments: list<string>, disks: list<string>, --
       $disk
     } else if ($devices | get fstype | uniq | where $it in [zfs_member btrfs bcachefs]
       | any {|filesystem| filesystem-active $connection $filesystem }) {
-      # Filesystem-level device membership is not fully represented by lsblk.
-      error make {msg: $"Cannot establish whether ($disk) belongs to an active filesystem spanning multiple devices."}
+      # lsblk does not show which filesystem a multi-device member belongs to,
+      # so treat the disk as in use and require the stronger confirmation.
+      $disk
     }
   }
   {os: $os, used: $used}
