@@ -129,7 +129,6 @@ in {
           }) (secrets instance);
         config = {
           imports = [(import ./instance.nix instance)];
-          system.stateVersion = config.system.stateVersion;
         };
       })
     instances;

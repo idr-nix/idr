@@ -84,28 +84,39 @@ in {
 
           idr.preset.base.enable = lib.mkDefault true;
 
+          system.stateVersion = lib.mkDefault moduleArgs.config.system.stateVersion;
+
           systemd.services.logrotate.serviceConfig.PrivateNetwork = lib.mkOverride 51 false;
         };
       };
     }));
   };
 
-  config = lib.mkIf (cfg.base.enable && cfg.base.reloadContainersWhenPossible) {
-    systemd.services =
-      lib.concatMapAttrs (name: _: let
-        containerFile = config.environment.etc."nixos-containers/${name}.conf";
-        runtimeConfig = lib.concatStringsSep "\n" (builtins.filter
-          (line: !(lib.hasPrefix "SYSTEM_PATH=" line || lib.hasPrefix "FLAKE=" line))
-          (lib.splitString "\n" containerFile.text));
-      in {
-        "container@${name}" = {
-          serviceConfig.TimeoutStartSec = lib.mkForce "5min";
-          after = ["systemd-networkd.service" "nftables.service"];
-          # Hashing also discards the system path's Nix string context.
-          restartTriggers = lib.mkForce [(builtins.hashString "sha256" runtimeConfig)];
-          reloadTriggers = [containerFile.source];
-        };
-      })
-      containers;
-  };
+  config = lib.mkIf cfg.base.enable (lib.mkMerge [
+    {
+      # Keep containers running during activation and restart them afterwards.
+      systemd.services = lib.mapAttrs' (name: _:
+        lib.nameValuePair "container@${name}" {stopIfChanged = false;})
+      config.containers;
+    }
+
+    (lib.mkIf cfg.base.reloadContainersWhenPossible {
+      systemd.services =
+        lib.concatMapAttrs (name: _: let
+          containerFile = config.environment.etc."nixos-containers/${name}.conf";
+          runtimeConfig = lib.concatStringsSep "\n" (builtins.filter
+            (line: !(lib.hasPrefix "SYSTEM_PATH=" line || lib.hasPrefix "FLAKE=" line))
+            (lib.splitString "\n" containerFile.text));
+        in {
+          "container@${name}" = {
+            serviceConfig.TimeoutStartSec = lib.mkForce "5min";
+            after = ["systemd-networkd.service" "nftables.service"];
+            # Hashing also discards the system path's Nix string context.
+            restartTriggers = lib.mkForce [(builtins.hashString "sha256" runtimeConfig)];
+            reloadTriggers = [containerFile.source];
+          };
+        })
+        containers;
+    })
+  ]);
 }
