@@ -25,6 +25,29 @@ def generate-images [
   }
 }
 
+# QEMU emulates the CPU with TCG on one vCPU unless told otherwise; use KVM and
+# the host's CPU count when the configured options leave these unset.
+def cpu-options [options: list<string>] {
+  let options = $options | each { str replace --regex '^--' '-' }
+  let sets_accel = $options | enumerate | any {|option|
+    $option.item in ["-accel" "-enable-kvm"] or (
+      $option.item in ["-machine" "-M"]
+      and (($options | get -o ($option.index + 1) | default "") =~ '(^|,)accel=')
+    )
+  }
+  let use_kvm = (
+    not $sets_accel
+    and $nu.os-info.name == "linux"
+    and (^test -r /dev/kvm -a -w /dev/kvm | complete | get exit_code) == 0
+  )
+
+  (
+    (if $use_kvm { ["-accel" "kvm"] } else { [] })
+    ++ (if $use_kvm and "-cpu" not-in $options { ["-cpu" "host"] } else { [] })
+    ++ (if "-smp" in $options { [] } else { ["-smp" (^nproc | str trim)] })
+  )
+}
+
 def main [
   --force (-f)
   --build-memory (-m): int = 16384 # Memory in MiB for the nested Disko build VM
@@ -68,6 +91,7 @@ def main [
     []
   }
   let qemu_options = ($env.IDR_QEMU_OPTIONS_JSON | from json) ++ $extra_qemu_options
+  let qemu_options = (cpu-options $qemu_options) ++ $qemu_options
   let data_dir = host-data-dir
   let qemu_dir = $data_dir | path join $machine_name "qemu"
   let machine_qemu_dir = $data_dir | path join "machine" $machine_name "qemu"

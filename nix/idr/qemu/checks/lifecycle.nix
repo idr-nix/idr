@@ -106,10 +106,6 @@
       audio.enable = false;
       clipboard.enable = false;
       options = [
-        "-machine"
-        "accel=kvm:tcg"
-        "-smp"
-        "2"
         "-fw_cfg"
         "name=opt/io.systemd.credentials/idr.qemu-ssh-key,string=${keys.snakeOilEd25519PublicKey}"
       ];
