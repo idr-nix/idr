@@ -88,7 +88,7 @@ def --wrapped main [
     if $copied.exit_code != 0 {
       error make {msg: $"Could not copy ($file.path): ($copied.stderr | str trim)"}
     }
-    print $"Copied ($file.sopsFile) to ($arguments | last):($file.path)"
+    print $"Copied ($file.key? | default $file.sopsFile) to ($arguments | last):($file.path)"
   }
   remember-host-key $target $arguments
 }
