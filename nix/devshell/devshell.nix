@@ -195,6 +195,7 @@ in {
         stdenv # support offline rebuild for devshell
         jq.dev # support offline rebuild for pkgs.writeClosure
         nixos-render-docs # support offline documentation for newly added modules
+        (nixosOptionsDoc {options = {};}).optionsJSON.inputDerivation # support offline option documentation rebuilds
       ]);
   };
 }
