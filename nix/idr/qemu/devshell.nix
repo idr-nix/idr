@@ -22,8 +22,9 @@ _: {
 
   idr-vnc = pkgs.writeShellApplication {
     name = "idr-vnc";
-    runtimeInputs = with pkgs; [nushell tigervnc];
+    runtimeInputs = with pkgs; [nushell coreutils remmina];
     text = ''
+      export IDR_VNC_KEYSYMS=${pkgs.libxkbcommon.dev}/include/xkbcommon/xkbcommon-keysyms.h
       exec nu -n --no-std-lib --no-history ${scripts}/idr-vnc.nu "$@"
     '';
   };
@@ -45,7 +46,7 @@ in {
       {
         name = "idr-vnc";
         package = idr-vnc;
-        help = "Connect to a machine's QEMU VNC display";
+        help = "Connect to a machine's QEMU VNC display (IDR_VNC_GRAB_KEY=Insert)";
       }
     ];
 }
