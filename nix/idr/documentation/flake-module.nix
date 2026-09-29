@@ -56,63 +56,66 @@ in {
     in
       pkgs.nixosOptionsDoc {
         warningsAreErrors = false;
-        transformOptions = option:
-          option
-          // lib.optionalAttrs (source != null) {
-            visible =
-              option.visible
-              && lib.any (declaration: lib.hasPrefix "${source}/" (toString declaration)) option.declarations;
-          };
-        options =
-          (evalModules {
-            modules =
-              map
-              (module:
-                if source == null
-                then module
-                else lib.setDefaultModuleLocation "${source}/flake.nix" module)
-              (lib.unique modules)
-              ++ [
+        options = let
+          evaluated =
+            (evalModules {
+              modules =
+                map
+                (module:
+                  if source == null
+                  then module
+                  else lib.setDefaultModuleLocation "${source}/flake.nix" module)
+                (lib.unique modules)
+                ++ [
+                  {
+                    config._module.check = false;
+                    options._module.args = lib.mkOption {
+                      internal = true;
+                    };
+                  }
+                ];
+              specialArgs =
                 {
-                  config._module.check = false;
-                  options._module.args = lib.mkOption {
-                    internal = true;
-                  };
+                  inputs = {idr = top.self;} // inputs;
+                  idr-lib = top.idr-lib;
+                  modulesPath = "${inputs.nixpkgs}/nixos/modules";
                 }
-              ];
-            specialArgs =
-              {
-                inputs = {idr = top.self;} // inputs;
-                idr-lib = top.idr-lib;
-                modulesPath = "${inputs.nixpkgs}/nixos/modules";
-              }
-              // (lib.optionalAttrs (type.full == "flake") {
-                flake-parts-lib =
-                  flake-parts-lib
-                  // {
-                    mkPerSystemOption = prev:
-                      if builtins.isFunction prev
-                      then
-                        flake-parts-lib.mkPerSystemOption (opts @ {
-                          system,
-                          config,
-                          options,
-                          extendModules,
-                          ...
-                        }:
-                          prev (opts
-                            // {
-                              inherit pkgs;
-                            }))
-                      else flake-parts-lib.mkPerSystemOption prev;
-                  };
-              })
-              // (cfg.specialArgs.${type.full} or {});
-            class = type.full;
-          }).options;
+                // (lib.optionalAttrs (type.full == "flake") {
+                  flake-parts-lib =
+                    flake-parts-lib
+                    // {
+                      mkPerSystemOption = prev:
+                        if builtins.isFunction prev
+                        then
+                          flake-parts-lib.mkPerSystemOption (opts @ {
+                            system,
+                            config,
+                            options,
+                            extendModules,
+                            ...
+                          }:
+                            prev (opts
+                              // {
+                                inherit pkgs;
+                              }))
+                        else flake-parts-lib.mkPerSystemOption prev;
+                    };
+                })
+                // (cfg.specialArgs.${type.full} or {});
+              class = type.full;
+            }).options;
+        in
+          if source == null
+          then evaluated
+          else
+            import ./source-options.nix {
+              inherit lib source;
+              options = evaluated;
+            };
       };
 
     cfg = config.idr.documentation;
+    parallel = builtins.parallel or (_: result: result);
     perTypeDocs = lib.genAttrs' moduleTypes (type: let
       doc = mkModuleDoc {
         inherit type;
@@ -140,44 +143,52 @@ in {
           && self.narHash != input.narHash
       )
       inputs;
-    inputs-doc = pkgs.writeText "inputs.md" ''
-      # Inputs
-      ${lib.concatStringsSep "\n"
-        (lib.flatten
-          (lib.mapAttrsToList (
-              name: input:
-                (lib.optional
-                  (input ? packages.${system}.idr-mk-docs)
-                  "- [${name}](${input.packages.${system}.idr-mk-docs}/html/index.html)")
-                ++ (
-                  lib.optional
-                  (input ? lib.nixosSystem)
-                  (let
-                    nixpkgsManual = "[nixpkgs manual](${input.htmlDocs.nixpkgsManual.${system}}/share/doc/nixpkgs/index.html)";
-                    nixosManualPackage =
-                      input.htmlDocs.nixosManual.${
-                        system
-                      }
+    inputs-doc = let
+      # Keep link strings lazy until they can be scheduled together. flatten
+      # would force each string while checking whether it is another list.
+      links = lib.concatLists (lib.mapAttrsToList (
+          name: input:
+            (lib.optional
+              (input ? packages.${system}.idr-mk-docs)
+              "- [${name}](${input.packages.${system}.idr-mk-docs}/html/index.html)")
+            ++ (
+              lib.optional
+              (input ? lib.nixosSystem)
+              (let
+                nixpkgsManual = "[nixpkgs manual](${input.htmlDocs.nixpkgsManual.${system}}/share/doc/nixpkgs/index.html)";
+                nixosManualPackage =
+                  input.htmlDocs.nixosManual.${
+                    system
+                  }
                       or (input.lib.nixosSystem {
-                        inherit system;
-                        modules = [];
-                      }).config.system.build.manual.manualHTML;
-                    nixosManual = "[nixos manual](${nixosManualPackage}/share/doc/nixos/index.html)";
-                  in "- ${name}: ${nixpkgsManual}, ${nixosManual}.")
-                )
+                    inherit system;
+                    modules = [];
+                  }).config.system.build.manual.manualHTML;
+                nixosManual = "[nixos manual](${nixosManualPackage}/share/doc/nixos/index.html)";
+              in "- ${name}: ${nixpkgsManual}, ${nixosManual}.")
             )
-            non-referential-inputs))}
-    '';
+        )
+        non-referential-inputs);
+    in
+      parallel links (pkgs.writeText "inputs.md" ''
+        # Inputs
+        ${lib.concatStringsSep "\n" links}
+      '');
     input-json-docs =
       lib.concatMapAttrs
       (name: input: let
-        idr-input = input ? packages.${system}.idr-mk-docs;
+        search-input = input ? packages.${system}.idr-nix-search-tv-config;
+        idr-input = search-input || input ? packages.${system}.idr-mk-docs;
+        optionData =
+          if search-input
+          then input.packages.${system}.idr-nix-search-tv-config
+          else input.packages.${system}.idr-mk-docs;
         nixpkgs-input = input ? lib.nixosSystem;
         other-input = !(idr-input || nixpkgs-input);
       in
         (lib.optionalAttrs idr-input {
           ${name} = {
-            inherit (input.packages.${system}.idr-mk-docs.passthru) json-docs input-json-docs;
+            inherit (optionData.passthru) json-docs input-json-docs;
           };
         })
         // (lib.optionalAttrs nixpkgs-input {
@@ -251,37 +262,48 @@ in {
         }))
       non-referential-inputs;
 
-    idr-generate-docs = pkgs.writeShellScriptBin "idr-generate-docs" ''
-      set -e
-      mkdir -p docs/generated
-      temporary_directory=$(mktemp -d docs/.idr-generated.XXXXXX)
-      trap 'rm -rf "$temporary_directory"' EXIT
+    # Dependency manuals can evaluate alongside the project's option Markdown.
+    idr-generate-docs =
+      parallel
+      ((map toString (builtins.attrValues docs)) ++ [(toString inputs-doc)])
+      (pkgs.writeShellScriptBin "idr-generate-docs" ''
+        set -e
+        mkdir -p docs/generated
+        temporary_directory=$(mktemp -d docs/.idr-generated.XXXXXX)
+        trap 'rm -rf "$temporary_directory"' EXIT
 
-      ${lib.concatStringsSep "\n" (lib.mapAttrsToList (name: doc: ''
-          cp ${doc} "$temporary_directory/${name}-options.md"
-        '')
-        docs)}
-      cp ${inputs-doc} "$temporary_directory/inputs.md"
+        ${lib.concatStringsSep "\n" (lib.mapAttrsToList (name: doc: ''
+            cp ${doc} "$temporary_directory/${name}-options.md"
+          '')
+          docs)}
+        cp ${inputs-doc} "$temporary_directory/inputs.md"
 
-      echo "# Lib" > "$temporary_directory/lib.md"
+        echo "# Lib" > "$temporary_directory/lib.md"
 
-      ${lib.concatStringsSep "\n" (builtins.map (
-          l: ''
-            ${cfg.nixdoc.package}/bin/nixdoc \
-              --file ${lib.escapeShellArg "${l.path}"} \
-              --description ${lib.escapeShellArg l.description} \
-              --category ${lib.escapeShellArg l.category} \
-              --anchor-prefix ${lib.escapeShellArg l.anchorPrefix} \
-              --prefix ${lib.escapeShellArg l.prefix} \
-              >> "$temporary_directory/lib.md"
-          ''
-        )
-        cfg.nixdoc.libs)}
+        ${lib.concatStringsSep "\n" (builtins.map (
+            l: ''
+              ${cfg.nixdoc.package}/bin/nixdoc \
+                --file ${lib.escapeShellArg "${l.path}"} \
+                --description ${lib.escapeShellArg l.description} \
+                --category ${lib.escapeShellArg l.category} \
+                --anchor-prefix ${lib.escapeShellArg l.anchorPrefix} \
+                --prefix ${lib.escapeShellArg l.prefix} \
+                >> "$temporary_directory/lib.md"
+            ''
+          )
+          cfg.nixdoc.libs)}
 
-      mv -ft docs/generated "$temporary_directory/"*
-    '';
+        mv -ft docs/generated "$temporary_directory/"*
+      '');
   in {
     options.idr.documentation = with lib; {
+      optionDocs = mkOption {
+        internal = true;
+        readOnly = true;
+        type = types.raw;
+        description = "Shared option JSON for documentation and option search.";
+        default = {inherit json-docs input-json-docs;};
+      };
       enable = mkOption {
         description = ''
           Enable documentation helpers.

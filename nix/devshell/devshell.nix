@@ -83,6 +83,18 @@ top: {
     '';
   };
 in {
+  # Evaluate package paths (including VM installers) alongside environment
+  # values (including option indexes), before constructing the shell.
+  options.devshell.shell = lib.mkOption {
+    internal = true;
+    apply = shell:
+      (builtins.parallel or (_: result: result)) [
+        config.devshell.startup_env
+        (lib.concatMapStrings toString config.devshell.packages)
+      ]
+      shell;
+  };
+
   options.idr = {
     projectName = lib.mkOption {
       description = ''
