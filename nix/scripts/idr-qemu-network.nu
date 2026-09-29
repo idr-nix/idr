@@ -50,5 +50,7 @@ export def options [] {
     "-device" $"virtio-net-pci,netdev=idr-local,mac=($mac_address),acpi-index=1"
     "-fw_cfg" $"name=opt/io.systemd.credentials/idr.workspace-id,string=($workspace_id)"
     "-fw_cfg" $"name=opt/io.systemd.credentials/idr.network-prefix-length,string=($backend.prefix_length)"
+    "-fw_cfg" $"name=opt/io.systemd.credentials/idr.machine-id,string=($env.IDR_QEMU_MACHINE_ID)"
+    "-fw_cfg" $"name=opt/io.systemd.credentials/idr.network-prefix,string=($env.IDR_QEMU_NETWORK_PREFIX)"
   ]
 }

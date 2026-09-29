@@ -1,4 +1,4 @@
-def main [] {
+def main [machine_secrets_path: path] {
   if (not ($env.PRJ_ROOT | path exists)
       or (ls --directory --long $env.PRJ_ROOT | first | get readonly)
   ) {
@@ -42,11 +42,16 @@ def main [] {
     exit 0
   }
 
-  let machines = nix eval ".#nixosConfigurations" --apply "builtins.attrNames" --json | from json
+  let machine_secrets = open $machine_secrets_path
+  let machines = $machine_secrets | columns
 
   $priv_keys | where ($it | path basename) in $machines | par-each {|file|
     let name = $file | path basename
-    let secrets = open (nix eval --raw $".#nixosConfigurations.\"($name)\".config.idr.preset.base.defaultSopsFile")
+    let secrets_path = $machine_secrets | get $name
+    if $secrets_path == null {
+      return
+    }
+    let secrets = open $secrets_path
     if ("sops" in $secrets) {
       if $user.agePublicKey in ($secrets | get sops.age.recipient) {
         ^rm -f -- $file $"($file).pub"

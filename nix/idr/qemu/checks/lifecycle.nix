@@ -66,12 +66,9 @@
             ]);
       };
     nixosImages = inputs.nixos-images;
-    inherit machineId networkPrefix;
-    qemuUdevRules = guest.config.system.build.idr.meta.disko.qemuUdevRules;
-    sshPorts = [sshPort];
   };
 
-  guest = pkgs.nixos {
+  guestBase = pkgs.nixos {
     imports = builtins.attrValues self.modules.nixos;
     _module.args.inputs = inputs;
     networking.hostName = machineName;
@@ -100,7 +97,6 @@
       };
     };
     idr.meta.preset.base.qemu = {
-      installerIso = "${installer}/iso/nixos-installer-${pkgs.stdenv.hostPlatform.system}.iso";
       memorySize = 2048;
       vnc.enable = true;
       audio.enable = false;
@@ -110,6 +106,45 @@
         "name=opt/io.systemd.credentials/idr.qemu-ssh-key,string=${keys.snakeOilEd25519PublicKey}"
       ];
     };
+  };
+  otherGuest = guestBase.extendModules {
+    modules = [
+      ({lib, ...}: {
+        idr.preset.base.id = lib.mkForce "aabbccddeeff";
+        idr.qemu.networkPrefix = lib.mkForce "fdab:1234:5678";
+        services.openssh.ports = lib.mkForce [2200];
+        disko.devices.disk.main.device = lib.mkForce "/dev/disk/by-id/nvme-eui.aabbccddeeff0011";
+        nixpkgs.overlays = lib.mkAfter [
+          (final: prev: {
+            idrInstallerTestMarker = true;
+            OVMF = prev.OVMF // {fd = "/machine-specific-firmware";};
+            writeShellApplication = args: prev.writeShellApplication (args // {name = "machine-specific-${args.name}";});
+            writeText = name: text: prev.writeText "machine-specific-${name}" text;
+          })
+        ];
+      })
+    ];
+  };
+  customRuntime = pkgs.writeShellScriptBin "custom-qemu-runtime" ''exit 0'';
+  customGuest = guestBase.extendModules {
+    modules = [
+      {
+        idr.meta.preset.base.qemu = {
+          runtimePackage = customRuntime;
+          firmware = "/custom-firmware.fd";
+        };
+      }
+    ];
+  };
+  noFirmwareGuest = guestBase.extendModules {
+    modules = [{idr.meta.preset.base.qemu.firmware = null;}];
+  };
+  guest = guestBase.extendModules {
+    modules = [
+      {
+        idr.meta.preset.base.qemu.installerIso = "${installer}/iso/nixos-installer-${pkgs.stdenv.hostPlatform.system}.iso";
+      }
+    ];
   };
   runner = guest.config.system.build.idrQemu;
   disko = builtins.removeAttrs guest.config.system.build.idr.meta.disko ["self"];
@@ -209,42 +244,81 @@
     }
   '';
 in
-  pkgs.testers.runNixOSTest {
-    name = "idr-qemu-lifecycle";
-    globalTimeout = 15 * 60;
-    nodes.machine = {lib, ...}: {
-      virtualisation = {
-        cores = 4;
-        memorySize = 4096;
-        diskSize = 8192;
-        useNixStoreImage = true;
-        writableStore = true;
-        writableStoreUseTmpfs = false;
-        additionalPaths = [inputs.nixpkgs.outPath];
-        qemu.options = ["-cpu" "host"];
+  assert guestBase.config.idr.meta.preset.base.qemu.installerIso
+  == "${self.packages.${pkgs.stdenv.hostPlatform.system}.idr-qemu-installer}/iso/nixos-installer-${pkgs.stdenv.hostPlatform.system}.iso";
+  assert otherGuest.config.idr.meta.preset.base.qemu.installerIso
+  == guestBase.config.idr.meta.preset.base.qemu.installerIso;
+  assert otherGuest.pkgs.idrInstallerTestMarker;
+  assert guestBase.config.idr.meta.preset.base.qemu.runtimePackage.drvPath
+  == self.packages.${pkgs.stdenv.hostPlatform.system}.idr-qemu-runtime.drvPath;
+  assert otherGuest.config.system.build.idrQemu.runtime.drvPath
+  == guestBase.config.system.build.idrQemu.runtime.drvPath;
+  assert customGuest.config.system.build.idrQemu.runtime.drvPath == customRuntime.drvPath;
+  assert guestBase.config.idr.meta.preset.base.qemu.firmware
+  == "${self.packages.${pkgs.stdenv.hostPlatform.system}.idr-qemu-firmware}/FV/OVMF.fd";
+  assert otherGuest.pkgs.OVMF.fd == "/machine-specific-firmware";
+  assert otherGuest.config.idr.meta.preset.base.qemu.firmware
+  == guestBase.config.idr.meta.preset.base.qemu.firmware;
+  assert customGuest.config.idr.meta.preset.base.qemu.firmware == "/custom-firmware.fd";
+  assert noFirmwareGuest.config.idr.meta.preset.base.qemu.firmware == null;
+  assert otherGuest.config.system.build.idrQemu.name == "idrQemu";
+  assert !(lib.hasInfix "-machine-specific-idr-qemu-installer-config.json" otherGuest.config.system.build.idrQemu.text);
+  # The process config must retain the runtime and its machine data, but must
+  # not cause the standalone wrapper to be built when entering the devshell.
+  assert !(builtins.hasAttr (builtins.unsafeDiscardStringContext runner.drvPath) (builtins.getContext (builtins.toJSON qemuProcesses)));
+  assert builtins.hasAttr (builtins.unsafeDiscardStringContext runner.runtime.drvPath) (builtins.getContext (builtins.toJSON qemuProcesses));
+    pkgs.testers.runNixOSTest {
+      name = "idr-qemu-lifecycle";
+      globalTimeout = 15 * 60;
+      nodes.machine = {lib, ...}: {
+        virtualisation = {
+          cores = 4;
+          memorySize = 4096;
+          diskSize = 8192;
+          useNixStoreImage = true;
+          writableStore = true;
+          writableStoreUseTmpfs = false;
+          additionalPaths = [inputs.nixpkgs.outPath];
+          qemu.options = ["-cpu" "host"];
+        };
+        nix.settings = {
+          experimental-features = ["nix-command" "flakes"];
+          substituters = lib.mkForce [];
+          sandbox = true;
+        };
+        networking.useDHCP = false;
+        users.users.qemu-helper-test = {
+          isNormalUser = true;
+          uid = 1000;
+        };
+        security.sudo.extraRules = [
+          {
+            users = ["qemu-helper-test"];
+            commands = [
+              {
+                command = "ALL";
+                options = ["NOPASSWD"];
+              }
+            ];
+          }
+        ];
+        environment.systemPackages =
+          [
+            environment
+            processCompose
+            runner
+            commands.packages.idr-wipe-local-vm
+            commands.packages.idr-serial
+          ]
+          ++ (with pkgs; [gitMinimal nushell qemu openssh jq python3]);
+        environment.etc = {
+          "idr-test-network-bootstrap".source = lib.getExe runner.runtime.networkBootstrap;
+          "idr-test-project".source = project;
+          "idr-test-disk.qcow2".source = "${bootDisk}/disk.qcow2";
+          "idr-test-key".source = keys.snakeOilEd25519PrivateKey;
+          "idr-test-public-key".text = keys.snakeOilEd25519PublicKey;
+          "idr-test-console.py".source = ./lifecycle/console.py;
+        };
       };
-      nix.settings = {
-        experimental-features = ["nix-command" "flakes"];
-        substituters = lib.mkForce [];
-        sandbox = true;
-      };
-      networking.useDHCP = false;
-      environment.systemPackages =
-        [
-          environment
-          processCompose
-          runner
-          commands.packages.idr-wipe-local-vm
-          commands.packages.idr-serial
-        ]
-        ++ (with pkgs; [gitMinimal nushell qemu openssh jq python3]);
-      environment.etc = {
-        "idr-test-project".source = project;
-        "idr-test-disk.qcow2".source = "${bootDisk}/disk.qcow2";
-        "idr-test-key".source = keys.snakeOilEd25519PrivateKey;
-        "idr-test-public-key".text = keys.snakeOilEd25519PublicKey;
-        "idr-test-console.py".source = ./lifecycle/console.py;
-      };
-    };
-    testScript = builtins.readFile ./lifecycle/test.py;
-  }
+      testScript = builtins.readFile ./lifecycle/test.py;
+    }

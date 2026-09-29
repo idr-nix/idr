@@ -268,7 +268,7 @@ in {
       ${lib.concatStringsSep "\n" (builtins.map (
           l: ''
             ${cfg.nixdoc.package}/bin/nixdoc \
-              --file ${lib.escapeShellArg l.path} \
+              --file ${lib.escapeShellArg "${l.path}"} \
               --description ${lib.escapeShellArg l.description} \
               --category ${lib.escapeShellArg l.category} \
               --anchor-prefix ${lib.escapeShellArg l.anchorPrefix} \

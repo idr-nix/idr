@@ -104,8 +104,22 @@ in {
       };
       devshell.startup.idr-sops-clean-host-keys = {
         deps = ["idr-write-files"];
-        text = ''
-          nu -n --no-std-lib --no-history ${scripts}/idr-sops-clean-host-keys.nu
+        text = let
+          # Reuse this evaluation (including input overrides). Keep project
+          # paths relative so cleanup reads the working tree's current secrets.
+          machineSecrets = lib.mapAttrs (_: machine: let
+            file = machine.config.idr.preset.base.defaultSopsFile or null;
+            projectPrefix = "${self}/";
+          in
+            if file == null
+            then null
+            else if lib.hasPrefix projectPrefix (toString file)
+            then builtins.unsafeDiscardStringContext (lib.removePrefix projectPrefix (toString file))
+            else toString file)
+          (self.nixosConfigurations or {});
+          machineSecretsFile = pkgs.writeText "idr-machine-secrets.json" (builtins.toJSON machineSecrets);
+        in ''
+          nu -n --no-std-lib --no-history ${scripts}/idr-sops-clean-host-keys.nu ${machineSecretsFile}
         '';
       };
     };

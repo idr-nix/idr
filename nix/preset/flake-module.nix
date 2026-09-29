@@ -8,6 +8,19 @@ top: {
   flake.modules.nixos.preset = flake-parts-lib.importApply ./nixos-module.nix top;
 
   perSystem = {pkgs, ...}: {
+    legacyPackages.idrQemuBuilders = {
+      inherit (pkgs) writeShellApplication writeText;
+    };
+
+    packages = lib.optionalAttrs pkgs.stdenv.hostPlatform.isLinux {
+      idr-qemu-firmware = pkgs.OVMF.fd;
+      idr-qemu-runtime = pkgs.callPackage ./base/qemu/runtime.nix {};
+      idr-qemu-installer = import ./base/qemu/installer.nix {
+        inherit pkgs;
+        nixosImages = top.inputs.nixos-images;
+      };
+    };
+
     checks = lib.optionalAttrs pkgs.stdenv.hostPlatform.isLinux {
       nixos-base-presets = import ./base/checks/defaults.nix {
         inherit pkgs;

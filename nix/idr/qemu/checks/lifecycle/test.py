@@ -5,6 +5,48 @@ import shlex
 start_all()
 machine.wait_for_unit("multi-user.target")
 
+with subtest("Shared network helper passes a custom prefix through sudo"):
+    machine.succeed("""python3 - <<'PY'
+import array
+import os
+import socket
+import subprocess
+
+def unprivileged():
+    os.setgroups([])
+    os.setgid(100)
+    os.setuid(1000)
+
+parent, child = socket.socketpair()
+parent.settimeout(30)
+process = subprocess.Popen(
+    ["/etc/idr-test-network-bootstrap", "--fd", str(child.fileno()), "--br", "idr0", "--use-vnet"],
+    env={"PATH": "/run/wrappers/bin:/run/current-system/sw/bin", "IDR_QEMU_NETWORK_PREFIX": "fdab:1234:5678"},
+    pass_fds=[child.fileno()], preexec_fn=unprivileged,
+    stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+)
+child.close()
+try:
+    _, messages, _, _ = parent.recvmsg(1, socket.CMSG_SPACE(array.array("i").itemsize))
+    fds = array.array("i")
+    for level, kind, payload in messages:
+        if level == socket.SOL_SOCKET and kind == socket.SCM_RIGHTS:
+            fds.frombytes(payload)
+    _, stderr = process.communicate(timeout=30)
+    assert process.returncode == 0, stderr.decode()
+    assert len(fds) == 1, "Bridge helper did not pass a TAP descriptor: " + stderr.decode()
+    for fd in fds:
+        os.close(fd)
+finally:
+    parent.close()
+    if process.poll() is None:
+        process.kill()
+        process.wait()
+PY""")
+    machine.succeed("ip -6 address show dev idr0 | grep 'fdab:1234:5678::1/48'")
+    machine.succeed("ip -6 route show dev idr0 | grep 'fdab:1234:5678::/48'")
+    machine.succeed("ip link delete idr0")
+
 
 def run(command):
     return machine.succeed("idr-test " + command + " </dev/null").strip()
@@ -148,6 +190,13 @@ with subtest("The wiped disk falls back to the actual installer ISO"):
     output = machine.succeed(ssh + shlex.quote("cat /etc/os-release; ip -6 address show dev eno1"))
     assert "ID=nixos" in output
     assert address + "/48" in output
+    machine.succeed(ssh + shlex.quote(
+        "set -e; for tool in tor iwctl network-status xkcdpass; do "
+        "if command -v \"$tool\"; then exit 1; fi; done; "
+        "test ! -e /var/shared/root-password; "
+        "! systemctl is-active --quiet tor.service; "
+        "! systemctl is-active --quiet iwd.service"
+    ))
     machine.succeed(ssh + shlex.quote("test -b /dev/disk/by-id/nvme-eui.1122334455667788"))
     machine.succeed(ssh + shlex.quote("test -f /run/idr-qemu-ssh/root; test $(stat -c %a /run/idr-qemu-ssh/root) = 600"))
     machine.succeed(ssh + shlex.quote("echo IDR_TEST_INSTALLER_SERIAL > /dev/ttyS0"))

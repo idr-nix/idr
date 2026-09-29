@@ -5,18 +5,19 @@ top: moduleArgs @ {
   ...
 }: let
   cfg = config.idr.preset;
-  installer = import ./qemu/installer.nix {
-    inherit pkgs;
-    nixosImages = top.inputs.nixos-images;
-    machineId = cfg.base.id;
-    networkPrefix = config.idr.qemu.networkPrefix;
-    qemuUdevRules = config.system.build.idr.meta.disko.qemuUdevRules;
-    sshPorts = config.services.openssh.ports;
-  };
+  # Resolve through IDR, not the client project's package set or machine config.
+  installer = top.inputs.idr.packages.${pkgs.stdenv.hostPlatform.system}.idr-qemu-installer;
+  builders = top.inputs.idr.legacyPackages.${pkgs.stdenv.hostPlatform.system}.idrQemuBuilders;
 in {
   imports = top.idr-lib.importApplyAll top [./qemu-network.nix];
 
   options.idr.meta.preset.base.qemu = {
+    runtimePackage = lib.mkOption {
+      description = "Host tools and helpers used to run local QEMU VMs.";
+      type = lib.types.package;
+      default = top.inputs.idr.packages.${pkgs.stdenv.hostPlatform.system}.idr-qemu-runtime;
+      defaultText = "IDR's shared QEMU runtime";
+    };
     memorySize = lib.mkOption {
       description = ''
         Default RAM (in MiB) for config.system.build.idrQemu. QEMU's built-in
@@ -34,14 +35,14 @@ in {
       '';
       type = with lib.types; nullOr str;
       default = null;
-      defaultText = lib.literalExpression ''"''${pkgs.OVMF.fd}/FV/OVMF.fd"'';
+      defaultText = "IDR's shared OVMF firmware";
     };
 
     installerIso = lib.mkOption {
       description = "Installer ISO used when the local VM has no bootable disk.";
       type = lib.types.path;
       default = "${installer}/iso/nixos-installer-${pkgs.stdenv.hostPlatform.system}.iso";
-      defaultText = "nixos-images installer with local QEMU networking";
+      defaultText = "IDR's shared QEMU installer ISO";
     };
 
     graphics = lib.mkOption {
@@ -161,6 +162,10 @@ in {
       ++ lib.optionals (builtins.elem "virtio" diskBuses) ["virtio_blk" "virtio_pci"]
     );
     qemuUdevRules = meta.qemuUdevRules;
+    installerConfig = builders.writeText "idr-qemu-installer-config.json" (builtins.toJSON {
+      inherit qemuUdevRules;
+      sshPorts = config.services.openssh.ports;
+    });
     qemuOptions =
       [
         "-m"
@@ -171,6 +176,8 @@ in {
         "virtio-scsi-pci,id=idr-installer-scsi"
         "-device"
         "scsi-cd,bus=idr-installer-scsi.0,drive=idr-installer,bootindex=${toString (builtins.length diskBuses + 1)}"
+        "-fw_cfg"
+        "name=opt/io.systemd.credentials/idr.installer-config,file=${installerConfig}"
       ]
       ++ (
         if qemuCfg.graphics
@@ -188,36 +195,26 @@ in {
       )
       ++ meta.qemuOptions
       ++ qemuCfg.options;
-    scriptsDir = ../../scripts;
     sopsConfig = cfg.base.inputs.self.packages.${pkgs.stdenv.hostPlatform.system}.idr-sops-config;
     sopsFilename = lib.removePrefix "${cfg.base.inputs.self}/" (toString cfg.base.defaultSopsFile);
-    # QEMU finds this packaged ACL beside the copied helper, without using host configuration.
-    bridgeHelper = pkgs.runCommand "idr-qemu-bridge-helper" {} ''
-      install -Dm755 ${pkgs.qemu}/libexec/qemu-bridge-helper $out/libexec/qemu-bridge-helper
-      mkdir -p $out/libexec/qemu-bundle/etc/qemu
-      echo 'allow idr0' > $out/libexec/qemu-bundle/etc/qemu/bridge.conf
-    '';
-    networkAskpass = pkgs.writers.writeNuBin "idr-qemu-network-askpass" ''
-      def main [prompt: string] {
-        exec ${lib.getExe pkgs.rofi} -dmenu -password -input /dev/null -format s -kb-toggle-case-sensitivity "" -p $prompt
+    runtimeEnvironment =
+      {
+        IDR_QEMU_MACHINE = config.networking.hostName;
+        IDR_QEMU_MACHINE_ID = cfg.base.id;
+        IDR_QEMU_NETWORK_PREFIX = config.idr.qemu.networkPrefix;
+        IDR_QEMU_UNLOCK_PORT = toString config.boot.initrd.network.ssh.port;
+        IDR_QEMU_OPTIONS_JSON = builtins.toJSON qemuOptions;
+        IDR_QEMU_VNC_ENABLED = builtins.toJSON qemuCfg.vnc.enable;
       }
-    '';
-    networkBootstrap = pkgs.writers.writeNuBin "idr-qemu-network-bootstrap" ''
-      def main [--fd: int = 0, --br: string, --use-vnet] {
-        if (^${pkgs.coreutils}/bin/id -u | into int) != 0 {
-          print --stderr "Warning: using sudo to set up the idr0 network."
-          $env.SUDO_ASKPASS = $env.SUDO_ASKPASS? | default --empty "${lib.getExe networkAskpass}"
-          # Preserve the helper socket and unblock QEMU's SIGCHLD mask so sudo can reap its child.
-          exec ${pkgs.socat}/bin/socat $"FD:($fd)" $"EXEC:${pkgs.coreutils}/bin/env --default-signal=CHLD sudo --askpass -- ($nu.current-exe) -n --no-std-lib --no-history ($env.CURRENT_FILE) --fd=0,nofork"
-        }
-
-        # Another VM may have already created the bridge.
-        ^${pkgs.iproute2}/bin/ip link add name idr0 type bridge | complete | ignore
-        ^${pkgs.iproute2}/bin/ip -6 address replace "${config.idr.qemu.networkPrefix}::1/48" dev idr0
-        ^${pkgs.iproute2}/bin/ip link set dev idr0 up
-        ^${pkgs.iproute2}/bin/ip -6 route replace "${config.idr.qemu.networkPrefix}::/48" dev idr0 metric 256
-        exec ${bridgeHelper}/libexec/qemu-bridge-helper --use-vnet --br=idr0 $"--fd=($fd)"
-      }
+      // lib.optionalAttrs (cfg.base.defaultSopsFile != null) {
+        IDR_QEMU_SOPS_CONFIG = toString sopsConfig;
+        IDR_QEMU_SOPS_FILENAME = sopsFilename;
+      };
+    runtimeCommand = ''
+      export IDR_QEMU_PROJECT_ROOT="''${PRJ_ROOT:-}"
+      export PRJ_ROOT=${lib.escapeShellArg meta.self}
+      export IDR_QEMU_EXTRA_OPTIONS_JSON="''${IDR_QEMU_EXTRA_OPTIONS_JSON:-[]}"
+      exec ${lib.getExe qemuCfg.runtimePackage} "$@"
     '';
   in {
     # Disko substitutes virtio disks while building images; keep the machine's original identities.
@@ -236,45 +233,26 @@ in {
       lib.mkIf (displayEnabled && qemuCfg.clipboard.enable)
       (lib.mkDefault "/dev/virtio-ports/com.redhat.spice.0");
 
-    idr.meta.preset.base.qemu.firmware = lib.mkDefault "${pkgs.OVMF.fd}/FV/OVMF.fd";
+    idr.meta.preset.base.qemu.firmware = lib.mkDefault "${top.inputs.idr.packages.${pkgs.stdenv.hostPlatform.system}.idr-qemu-firmware}/FV/OVMF.fd";
 
-    system.build.idrQemu = pkgs.writeShellApplication {
+    system.build.idrQemu = builders.writeShellApplication {
       name = "idrQemu";
-      passthru = {inherit installer;};
-      runtimeInputs = with pkgs; [
-        coreutils
-        gitMinimal
-        iproute2
-        nix
-        (nushell.override {
-          # Stop background unlock commands when the runner receives SIGTERM.
-          additionalFeatures = features: features ++ ["ctrlc/termination"];
-        })
-        openssl
-        openssh
-        qemu
-        sops
-        util-linuxMinimal
-      ];
-      text = ''
-        export IDR_QEMU_PROJECT_ROOT="''${PRJ_ROOT:-}"
-        export PRJ_ROOT=${lib.escapeShellArg meta.self}
-        export IDR_QEMU_MACHINE=${lib.escapeShellArg config.networking.hostName}
-        export IDR_QEMU_MACHINE_ID=${lib.escapeShellArg cfg.base.id}
-        export IDR_QEMU_NETWORK_PREFIX=${lib.escapeShellArg config.idr.qemu.networkPrefix}
-        export IDR_QEMU_NETWORK_BOOTSTRAP=${lib.escapeShellArg (lib.getExe networkBootstrap)}
-        export IDR_QEMU_UNLOCK_PORT=${toString config.boot.initrd.network.ssh.port}
-        ${lib.optionalString (cfg.base.defaultSopsFile != null) ''
-          export IDR_QEMU_SOPS_CONFIG=${lib.escapeShellArg sopsConfig}
-          export IDR_QEMU_SOPS_FILENAME=${lib.escapeShellArg sopsFilename}
-        ''}
-        export IDR_QEMU_OPTIONS_JSON=${lib.escapeShellArg (builtins.toJSON qemuOptions)}
-        export IDR_QEMU_EXTRA_OPTIONS_JSON="''${IDR_QEMU_EXTRA_OPTIONS_JSON:-[]}"
-        export IDR_QEMU_VNC_ENABLED=${lib.escapeShellArg (builtins.toJSON qemuCfg.vnc.enable)}
-        export IDR_MK_IMAGES_SCRIPT=${lib.escapeShellArg "${scriptsDir}/idr-mk-images.nu"}
-
-        exec nu -n --no-std-lib --no-history ${scriptsDir}/idr-qemu.nu "$@"
-      '';
+      passthru = {
+        inherit installer;
+        runtime = qemuCfg.runtimePackage;
+        # Embed machine data in Process Compose's config without depending on
+        # the standalone wrapper, whose path changes with the project snapshot.
+        processCompose = {
+          command = runtimeCommand;
+          environment = lib.mapAttrsToList (name: value: "${name}=${value}") runtimeEnvironment;
+        };
+      };
+      text =
+        lib.concatMapStringsSep "\n"
+        (name: "export ${name}=${lib.escapeShellArg runtimeEnvironment.${name}}")
+        (builtins.attrNames runtimeEnvironment)
+        + "\n"
+        + runtimeCommand;
       meta = {
         mainProgram = "idrQemu";
       };

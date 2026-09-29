@@ -33,29 +33,32 @@ top: {
         publicKey = cfg.system.build.idr.meta.sshHostPublicKey;
         sopsFile = cfg.system.build.idr.meta.defaultSopsFile or null;
       in {
-        "vm-${machineName}" = {
-          availability.restart = "no";
-          command = cfg.system.build.idrQemu;
-          disabled = true;
-          namespace = "vm-${machineName}";
-          readiness_probe = lib.mkIf (cfg.services.openssh.enable && publicKey != null) (lib.mkDefault {
-            exec.command = lib.escapeShellArgs ([
-                (lib.getExe sshReadiness)
-                cfg.idr.qemu.networkPrefix
-                cfg.idr.preset.base.id
-                (toString (builtins.head cfg.services.openssh.ports))
-                publicKey
-              ]
-              ++ lib.optionals (sopsFile != null) [
-                "--sops-file"
-                (lib.removePrefix "${self}/" (toString sopsFile))
-              ]);
-            period_seconds = 10;
-            timeout_seconds = 5;
-            # Allow 30 days for image builds and booting, including the first immediate probe.
-            failure_threshold = builtins.div (30 * 24 * 60 * 60) 10 + 1;
-          });
-        };
+        "vm-${machineName}" =
+          (cfg.system.build.idrQemu.processCompose or {
+            command = cfg.system.build.idrQemu;
+          })
+          // {
+            availability.restart = "no";
+            disabled = true;
+            namespace = "vm-${machineName}";
+            readiness_probe = lib.mkIf (cfg.services.openssh.enable && publicKey != null) (lib.mkDefault {
+              exec.command = lib.escapeShellArgs ([
+                  (lib.getExe sshReadiness)
+                  cfg.idr.qemu.networkPrefix
+                  cfg.idr.preset.base.id
+                  (toString (builtins.head cfg.services.openssh.ports))
+                  publicKey
+                ]
+                ++ lib.optionals (sopsFile != null) [
+                  "--sops-file"
+                  (lib.removePrefix "${self}/" (toString sopsFile))
+                ]);
+              period_seconds = 10;
+              timeout_seconds = 5;
+              # Allow 30 days for image builds and booting, including the first immediate probe.
+              failure_threshold = builtins.div (30 * 24 * 60 * 60) 10 + 1;
+            });
+          };
       })
       machineConfigurations;
 

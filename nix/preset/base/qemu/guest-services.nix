@@ -1,9 +1,16 @@
 {
   lib,
-  machineId,
-  networkPrefix,
+  machineId ? null,
+  networkPrefix ? null,
 }: let
-  machine = lib.concatStringsSep ":" (lib.genList (i: builtins.substring (i * 4) 4 machineId) 3);
+  machine =
+    if machineId == null
+    then "\${machine_id:0:4}:\${machine_id:4:4}:\${machine_id:8:4}"
+    else lib.concatStringsSep ":" (lib.genList (i: builtins.substring (i * 4) 4 machineId) 3);
+  prefix =
+    if networkPrefix == null
+    then "\${network_prefix}"
+    else networkPrefix;
 in {
   network = {
     description = "Configure local QEMU networking";
@@ -16,11 +23,20 @@ in {
     serviceConfig = {
       Type = "oneshot";
       RemainAfterExit = true;
-      ImportCredential = ["idr.workspace-id" "idr.network-prefix-length"];
+      ImportCredential =
+        ["idr.workspace-id" "idr.network-prefix-length"]
+        ++ lib.optional (machineId == null) "idr.machine-id"
+        ++ lib.optional (networkPrefix == null) "idr.network-prefix";
     };
     script = ''
       workspace=$(< "$CREDENTIALS_DIRECTORY/idr.workspace-id")
       prefix_length=$(< "$CREDENTIALS_DIRECTORY/idr.network-prefix-length")
+      ${lib.optionalString (machineId == null) ''
+        machine_id=$(< "$CREDENTIALS_DIRECTORY/idr.machine-id")
+      ''}
+      ${lib.optionalString (networkPrefix == null) ''
+        network_prefix=$(< "$CREDENTIALS_DIRECTORY/idr.network-prefix")
+      ''}
 
       mkdir -p /run/systemd/network
       cat > /run/systemd/network/01-idr-qemu.network <<EOF
@@ -29,7 +45,7 @@ in {
       Driver=virtio_net
 
       [Network]
-      Address=${networkPrefix}:''${workspace:0:4}:''${workspace:4:4}:${machine}/$prefix_length
+      Address=${prefix}:''${workspace:0:4}:''${workspace:4:4}:${machine}/$prefix_length
       DHCP=no
       LinkLocalAddressing=ipv6
       IPv6AcceptRA=no

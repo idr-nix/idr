@@ -202,7 +202,8 @@ in
     importApplyAll = args: modules: builtins.map (module: lib.modules.importApply module args) modules;
 
     /**
-    Collect all non-self recursive flake inputs into a flat list.
+    Collect all non-self recursive flake inputs into a flat list, with one
+    entry per source path.
 
     # Type
 
@@ -221,10 +222,25 @@ in
         then []
         else ([input] ++ lib.concatMap (go (result ++ [input])) (builtins.attrValues (input.inputs or {})))
       );
+      # Traverse before deduplicating: the same source can be instantiated with
+      # different input overrides, whose dependencies must all remain available.
+      allInputs = lib.concatMap (go []) (lib.attrValues (builtins.removeAttrs inputs ["self"]));
+      collected =
+        lib.foldl' (acc: input: let
+          key = builtins.unsafeDiscardStringContext (toString input);
+        in
+          if acc.seen ? ${key}
+          then acc
+          else {
+            seen = acc.seen // {${key} = true;};
+            result = acc.result ++ [input];
+          }) {
+          seen = {};
+          result = [];
+        }
+        allInputs;
     in
-      lib.concatMap
-      (go [])
-      (lib.attrValues (lib.filterAttrs (n: v: n != "self") inputs));
+      collected.result;
 
     /**
     Generate a deterministic local IPv6 address using a preset prefix.
