@@ -52,7 +52,7 @@ top: {
       export IDR_GIT_REV="${top.self.rev or ""}"
       export IDR_GIT_DIRTY_REV="${top.self.dirtyRev or ""}"
       export IDR_GIT_DIRTY_SHORT_REV="${top.self.dirtyShortRev or ""}"
-      export IDR_GIT_LAST_MODIFIED="${toString top.self.lastModified}"
+      export IDR_GIT_LAST_MODIFIED="${toString (top.self.lastModified or 0)}"
       export IDR_GIT_NAR_HASH="${top.self.narHash}"
       export IDR_PATH="${top.self}"
       copier copy --trust ${top.self}/templates/project . "$@" -d idr_path=${top.self}
@@ -124,7 +124,7 @@ in {
       type = lib.types.path;
       internal = true;
       defaultText = "<idr-repo/templates>";
-      default = "${builtins.unsafeDiscardStringContext (toString top.self)}/templates";
+      default = "${top.self}/templates";
     };
     additionalPaths = lib.mkOption {
       description = ''

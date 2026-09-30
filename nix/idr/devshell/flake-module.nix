@@ -5,6 +5,8 @@ top: args @ {
   inputs,
   ...
 }: {
+  flake.modules.devshell.idr = lib.modules.importApply ./base.nix top;
+
   imports = [
     top.inputs.devshell.flakeModule
     top.inputs.process-compose-flake.flakeModule
@@ -51,7 +53,7 @@ top: args @ {
 
     devshells.default = {
       imports = [top.self.modules.devshell.idr];
-      devshell.prj_root_fallback.value = builtins.unsafeDiscardStringContext (toString self);
+      devshell.prj_root_fallback.value = toString self;
       env = [
         {
           name = "SSH_OPTS";

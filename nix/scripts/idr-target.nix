@@ -24,6 +24,8 @@ in {
 
   target = {
     projectHash = flake.narHash;
+    # Retain source context so evaluation materializes this immutable snapshot.
+    projectSource = flake.outPath;
     inherit (meta) machine system sshHostPublicKey initrdHostPublicKey initrdHostPublicKeys initrdPort;
     inherit (target) hostname;
     sshUser =

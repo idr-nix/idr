@@ -211,9 +211,16 @@ in {
         IDR_QEMU_SOPS_FILENAME = sopsFilename;
       };
     runtimeCommand = ''
-      export IDR_QEMU_PROJECT_ROOT="''${PRJ_ROOT:-}"
+      # Process Compose expands braced variables before reading its settings.
+      # Keep defaults explicit so JSON-valued variables reach the shell intact.
+      if [[ ! -v PRJ_ROOT ]]; then
+        PRJ_ROOT=""
+      fi
+      export IDR_QEMU_PROJECT_ROOT="$PRJ_ROOT"
       export PRJ_ROOT=${lib.escapeShellArg meta.self}
-      export IDR_QEMU_EXTRA_OPTIONS_JSON="''${IDR_QEMU_EXTRA_OPTIONS_JSON:-[]}"
+      if [[ ! -v IDR_QEMU_EXTRA_OPTIONS_JSON || -z "$IDR_QEMU_EXTRA_OPTIONS_JSON" ]]; then
+        export IDR_QEMU_EXTRA_OPTIONS_JSON="[]"
+      fi
       exec ${lib.getExe qemuCfg.runtimePackage} "$@"
     '';
   in {

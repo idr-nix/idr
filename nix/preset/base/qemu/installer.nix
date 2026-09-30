@@ -14,21 +14,26 @@
     modulesPath,
     ...
   }: let
-    upstream = import nixosImages.nixosModules.image-installer args;
+    imported = lib.modules.importApply nixosImages.nixosModules.image-installer args;
   in
-    upstream
+    imported
     // {
-      environment = builtins.removeAttrs upstream.environment ["systemPackages"];
-      programs =
-        upstream.programs
+      imports = map (upstream:
+        upstream
         // {
-          bash = builtins.removeAttrs upstream.programs.bash ["interactiveShellInit"];
-        };
-      system =
-        upstream.system
-        // {
-          activationScripts = builtins.removeAttrs upstream.system.activationScripts ["root-password"];
-        };
+          environment = builtins.removeAttrs upstream.environment ["systemPackages"];
+          programs =
+            upstream.programs
+            // {
+              bash = builtins.removeAttrs upstream.programs.bash ["interactiveShellInit"];
+            };
+          system =
+            upstream.system
+            // {
+              activationScripts = builtins.removeAttrs upstream.system.activationScripts ["root-password"];
+            };
+        })
+      imported.imports;
     };
   installer =
     (pkgs.nixos [
@@ -38,6 +43,7 @@
         tor-ssh.enable = lib.mkForce false;
         networking.wireless.iwd.enable = lib.mkForce false;
         boot.initrd.availableKernelModules = ["qemu_fw_cfg" "virtio_pci" "virtio_net"];
+        boot.zfs.forceImportRoot = true;
         networking.networkmanager.enable = lib.mkForce false;
         services.openssh.enable = true;
         systemd.services.idr-qemu-network = services.network;
