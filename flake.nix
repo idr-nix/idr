@@ -56,6 +56,8 @@
 
     nixpkgs-unstable.url = "git+ssh://git@github.com/NixOS/nixpkgs?shallow=1&ref=nixos-unstable";
 
+    determinate-nix.url = "git+ssh://git@github.com/DeterminateSystems/nix-src?shallow=1";
+
     flake-parts.url = "git+ssh://git@github.com/hercules-ci/flake-parts?shallow=1";
 
     systems.url = "git+ssh://git@github.com/nix-systems/default?shallow=1";

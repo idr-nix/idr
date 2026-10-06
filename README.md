@@ -11,6 +11,7 @@ Mandatory (must already be installed on your system):
 - [Git](https://git-scm.com/), configured for SSH access to GitHub - used to fetch the repository and manage changes
 - [Nix](https://nixos.org/download/) with [flakes](https://nixos.wiki/wiki/Flakes) enabled - required to evaluate and use this project  
   For Debian, RPM-based, and pacman-based systems, the community installers at [nix-community.github.io/nix-installers](https://nix-community.github.io/nix-installers/) are worth considering.
+  On macOS, consider [Determinate Nix](https://determinate.systems/solutions/nix-for-macos/).
 
 Recommended but optional:
 - [direnv](https://direnv.net/) - should already be installed and [configured with shell hooks](https://direnv.net/docs/hook.html) so the development environment loads automatically when entering the project directory
@@ -100,7 +101,7 @@ and run `nix run "git+ssh://git@github.com/idr-nix/idr" -- idr-mk-project .`
 - [Automatic disk unlocking](./nix/disk-unlock/README.md)
 - [Deployment](./docs/deployment.md)
 - [Key rotation](./docs/key-rotation.md)
-- [Certificates](./nix/idr/certs/README.md)
+- [Certificates](./nix/certs/README.md)
 - [Backups](./nix/backup/README.md)
 - [Local VMs](./docs/local-vms.md)
 - [Local networking and workspaces](./docs/local-networking.md)

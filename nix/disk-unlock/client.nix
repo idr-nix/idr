@@ -44,7 +44,7 @@ in {
       systemd = {
         enable = true;
         users.root.shell = "/bin/systemd-tty-ask-password-agent";
-        storePaths = ["${pkgs.netcat-openbsd}/bin/nc"];
+        storePaths = ["${pkgs.netcat}/bin/nc"];
         services = lib.mapAttrs' (name: member:
           lib.nameValuePair "idr-request-disk-unlock-${name}" {
             description = "Request disk unlocking from ${name}";
@@ -61,7 +61,7 @@ in {
             };
             script = ''
               printf '%s\n' ${lib.escapeShellArg requestName} |
-                ${pkgs.netcat-openbsd}/bin/nc -N -w 5 ${lib.escapeShellArg member.hostname} ${toString (member.port or 64998)}
+                ${pkgs.netcat}/bin/nc -N -w 5 ${lib.escapeShellArg member.hostname} ${toString (member.port or 64998)}
             '';
           })
         servers;

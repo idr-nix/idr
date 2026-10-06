@@ -50,41 +50,45 @@ in {
   };
 
   config = lib.mkIf (services != {}) {
-    idr.secrets-source = lib.concatMapAttrs (name: service: {
-      "${name}-env" = rec {
-        secrets = lib.filterAttrs (_: top.idr-lib.isSecret) service.environment;
-        exec = ''
-          ${pkgs.jq}/bin/jq -rn \
-            '$ARGS.positional[] as $name | $name + "=" + ($ENV[$name] | sub("\n+$"; "") | @sh)' \
-            --args ${lib.escapeShellArgs (builtins.attrNames secrets)}
-        '';
-      };
-    })
-    services;
+    idr.secrets-source =
+      lib.concatMapAttrs (name: service: {
+        "${name}-env" = rec {
+          secrets = lib.filterAttrs (_: top.idr-lib.isSecret) service.environment;
+          exec = ''
+            ${pkgs.jq}/bin/jq -rn \
+              '$ARGS.positional[] as $name | $name + "=" + ($ENV[$name] | sub("\n+$"; "") | @sh)' \
+              --args ${lib.escapeShellArgs (builtins.attrNames secrets)}
+          '';
+        };
+      })
+      services;
 
-    systemd.services = lib.mapAttrs (name: service: let
-      secret = envSecret name;
-    in {
-      serviceConfig = {
-        EnvironmentFile = [secret.path];
-        SupplementaryGroups = [config.users.groups.keys.name secret.group];
-      };
-      requires = ["idr-secrets.service"];
-      after = ["idr-secrets.service" secret.reloadTarget secret.restartTarget];
-      partOf = [
-        (
-          if service.reloadOnEnvironmentChange
-          then secret.reloadTarget
-          else secret.restartTarget
-        )
-      ];
-      environment =
-        lib.mapAttrs (_: value:
+    systemd.services =
+      lib.mapAttrs (name: service: let
+        secret = envSecret name;
+      in {
+        serviceConfig = {
+          EnvironmentFile = [secret.path];
+          SupplementaryGroups = [config.users.groups.keys.name secret.group];
+        };
+        unitConfig.ReloadPropagatedFrom = lib.optional service.reloadOnEnvironmentChange secret.reloadTarget;
+        # Reloadable services must survive the generator restarting during activation.
+        wants = lib.optional service.reloadOnEnvironmentChange "idr-secrets.service";
+        requires = lib.optional (!service.reloadOnEnvironmentChange) "idr-secrets.service";
+        after = ["idr-secrets.service" secret.reloadTarget secret.restartTarget];
+        partOf = [
+          (
+            if service.reloadOnEnvironmentChange
+            then secret.reloadTarget
+            else secret.restartTarget
+          )
+        ];
+        environment = lib.mapAttrs (_: value:
           if builtins.isBool value
           then lib.boolToString value
           else toString value)
         (lib.filterAttrs (_: value: !(top.idr-lib.isSecret value)) service.environment);
-    })
-    services;
+      })
+      services;
   };
 }

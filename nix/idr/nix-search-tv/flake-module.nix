@@ -23,7 +23,6 @@ _: {
       description = "Enable local option search in the devshell, independently of HTML documentation.";
     };
     config = {
-      checks.idr-option-generation = import ./checks/options.nix {inherit lib pkgs flake-parts-lib;};
       # Also expose option data through passthru for downstream IDR projects,
       # without making them evaluate or build the HTML book.
       packages.idr-nix-search-tv-config = searchConfig;

@@ -12,22 +12,29 @@ def generate-images [
   destination: string
   mk_images_script: string
   image_names: list<string>
+  force: bool = false
 ] {
-  with-env {IDR_MK_IMAGES_INTERNAL_IMAGE_NAMES_JSON: ($image_names | to json -r)} {
+  with-env {
+    IDR_MK_IMAGES_INTERNAL_IMAGE_NAMES_JSON: ($image_names | to json -r)
+    IDR_MK_IMAGES_INTERNAL_RUNNER_DIR: ($destination | path expand)
+  } {
     do --capture-errors {
       (run-external
         $nu.current-exe "-n" "--no-std-lib" "--no-history"
         $mk_images_script
         "--build-memory" $build_memory
+        "--source" $destination
+        ...(if $force { ["--force"] } else { [] })
         $machine_name $destination
       )
     }
   }
 }
 
-# QEMU emulates the CPU with TCG on one vCPU unless told otherwise; use KVM and
-# the host's CPU count when the configured options leave these unset.
-def cpu-options [options: list<string>] {
+# QEMU emulates the CPU with TCG on one vCPU unless told otherwise; use KVM or HVF
+# for the host's own architecture, and the host's CPU count, when the configured
+# options leave these unset.
+def cpu-options [options: list<string>, guest_arch: string] {
   let options = $options | each { str replace --regex '^--' '-' }
   let sets_accel = $options | enumerate | any {|option|
     $option.item in ["-accel" "-enable-kvm"] or (
@@ -35,23 +42,48 @@ def cpu-options [options: list<string>] {
       and (($options | get -o ($option.index + 1) | default "") =~ '(^|,)accel=')
     )
   }
-  let use_kvm = (
-    not $sets_accel
-    and $nu.os-info.name == "linux"
-    and (^test -r /dev/kvm -a -w /dev/kvm | complete | get exit_code) == 0
-  )
+  let host_arch = ^uname -m | str trim | str replace "arm64" "aarch64"
+  let accel = if $sets_accel or $guest_arch != $host_arch {
+    null
+  } else if $nu.os-info.name == "linux" and (^test -r /dev/kvm -a -w /dev/kvm | complete | get exit_code) == 0 {
+    "kvm"
+  } else if $nu.os-info.name == "macos" and (^sysctl -n kern.hv_support | complete | get stdout | str trim) == "1" {
+    "hvf"
+  } else {
+    null
+  }
+  # EDK2 202602 cannot boot with the max CPU's LPA2 support enabled.
+  let cpu = if $sets_accel { null } else if $accel != null { "host" } else if $guest_arch == "aarch64" { "max,lpa2=off" } else { null }
 
   (
-    (if $use_kvm { ["-accel" "kvm"] } else { [] })
-    ++ (if $use_kvm and "-cpu" not-in $options { ["-cpu" "host"] } else { [] })
+    (if $accel != null { ["-accel" $accel] } else { [] })
+    ++ (if $cpu != null and "-cpu" not-in $options { ["-cpu" $cpu] } else { [] })
     ++ (if "-smp" in $options { [] } else { ["-smp" (^nproc | str trim)] })
   )
 }
 
+def display-options [options: list<string>, graphics: bool, host_os: string] {
+  let options = $options | each { str replace --regex '^--' '-' }
+  if "-display" in $options or "-nographic" in $options {
+    []
+  } else {
+    ["-display" (if not $graphics { "none" } else if $host_os == "macos" { "cocoa" } else { "gtk" })]
+  }
+}
+
 def main [
   --force (-f)
-  --build-memory (-m): int = 16384 # Memory in MiB for the nested Disko build VM
+  --build-memory (-m): int # Memory in MiB for the nested Disko build VM (default: IDR_QEMU_BUILD_MEMORY or 16384)
 ] {
+  let build_memory = if $build_memory != null {
+    $build_memory
+  } else {
+    $env.IDR_QEMU_BUILD_MEMORY? | default 16384 | into int
+  }
+  if $build_memory <= 0 {
+    error make {msg: "The image-build VM memory must be a positive number of MiB"}
+  }
+
   if "PRJ_ROOT" not-in $env {
     print "PRJ_ROOT environment variable is required."
     exit 1
@@ -91,7 +123,13 @@ def main [
     []
   }
   let qemu_options = ($env.IDR_QEMU_OPTIONS_JSON | from json) ++ $extra_qemu_options
-  let qemu_options = (cpu-options $qemu_options) ++ $qemu_options
+  let guest_arch = $env.IDR_QEMU_SYSTEM? | default "x86_64-linux" | split row "-" | first
+  let graphics = $env.IDR_QEMU_GRAPHICS_ENABLED? | default false | into bool
+  let qemu_options = (
+    (cpu-options $qemu_options $guest_arch)
+    ++ (display-options $qemu_options $graphics $nu.os-info.name)
+    ++ $qemu_options
+  )
   let data_dir = host-data-dir
   let qemu_dir = $data_dir | path join $machine_name "qemu"
   let machine_qemu_dir = $data_dir | path join "machine" $machine_name "qemu"
@@ -156,7 +194,7 @@ def main [
   let workspace_id = workspace-id
   $env.IDR_WORKSPACE_ID = $workspace_id
 
-  let metadata = nix eval $"($env.PRJ_ROOT)#nixosConfigurations.\"($machine_name)\".config.system.build.idr.meta.disko" --json | from json
+  let metadata = nix --offline eval $"($env.PRJ_ROOT)#nixosConfigurations.\"($machine_name)\".config.system.build.idr.meta.disko" --json | from json
   let disks = $metadata.disks | values
   let disk_key_metadata = $metadata.preFormatFiles | get -o "/disk-key.txt"
   let disk_unlock_configured = $disk_key_metadata != null
@@ -189,6 +227,7 @@ def main [
       $qemu_dir
       $env.IDR_MK_IMAGES_SCRIPT
       ($disks | get imageName)
+      true
     )
   } else if not ($missing_disks | is-empty) {
     (generate-images
@@ -198,11 +237,6 @@ def main [
       $env.IDR_MK_IMAGES_SCRIPT
       ($missing_disks | get imageName)
     )
-  } else {
-    $raw_images
-      | where {|image| $image | path exists}
-      | each {|image| rm -f $image}
-      | ignore
   }
 
   let vnc_qemu_options = if $vnc_enabled {
@@ -268,7 +302,7 @@ def main [
             } else if $host_keys != $previous_host_keys {
               try {
                 # Refresh after a boot or host-key change without evaluating Nix on every poll.
-                let metadata = nix eval $"($project_root)#nixosConfigurations.\"($machine_name)\".config.system.build.idr.meta.disko" --json | from json
+                let metadata = nix --offline eval $"($project_root)#nixosConfigurations.\"($machine_name)\".config.system.build.idr.meta.disko" --json | from json
                 let initrd_key = $metadata.postFormatFiles | values | where key == "initrd_ssh_host_ed25519_key" | first
                 let public_key = open $initrd_key.sopsFile | get initrd_ssh_host_ed25519_key_pub_unencrypted
                   | split row " " | first 2 | str join " "
@@ -294,7 +328,17 @@ def main [
     cd $qemu_dir
     $exit_code = try {
       # Keep the serial logger on a pipe even when the runner's stdout is a file.
-      qemu-system-x86_64 ...$serial_qemu_options ...$vnc_qemu_options ...$network_options ...$ssh_qemu_options ...$qemu_options | cat
+      let qemu = [$"qemu-system-($guest_arch)" ...$serial_qemu_options ...$vnc_qemu_options ...$network_options ...$ssh_qemu_options ...$qemu_options]
+      if $nu.os-info.name == "macos" {
+        # vmnet requires root: start QEMU through sudo, then drop to the caller after
+        # creating the interface. A zero umask keeps root's sockets usable by the
+        # caller; they stay inside the caller's private directory.
+        let qemu_path = which $qemu.0 | get 0.path
+        let user = ^id -un | str trim
+        (^sudo --askpass -- /bin/sh -c 'umask 000; exec "$@"' sh $qemu_path ...($qemu | skip 1) "-run-with" $"user=($user)") | cat
+      } else {
+        run-external ...$qemu | cat
+      }
       0
     } catch {|error|
       print --stderr $error.msg

@@ -97,6 +97,7 @@ in {
         text = ''
           idr-with-project-lock ${pkgs.writeShellScript "idr-write-rotation-metadata" ''
             set -e
+            nu -n --no-std-lib --no-history ${scripts}/idr-sops-updatekeys.nu --pending
             nu -n --no-std-lib --no-history ${scripts}/idr-write-last-changed-files-metadata.nu
             nu -n --no-std-lib --no-history ${scripts}/idr-sops-write-rotation-metadata.nu
           ''}

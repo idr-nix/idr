@@ -1,7 +1,5 @@
 ## Run local QEMU VMs
 
-The local VM workflow currently supports `x86_64-linux` hosts and guests.
-
 Test configuration and deployment changes in a local VM before applying them to
 a server. The VM boots generated disk images, exercising the disk layout and
 bootloader. It uses the same NixOS configuration, with local networking and SSH
@@ -16,6 +14,16 @@ idr process start vm-some-machine
 
 The first start builds missing disk images. Later starts reuse them; apply
 system configuration changes through [deployment](deployment.md#local-vms).
+To export a stopped VM in another format, use [image reuse](mk-images.md#reuse-installed-images).
+Exporting preserves the VM's source images.
+
+The image-build VM uses 16384 MiB of RAM by default. Set a smaller limit before
+starting Process Compose on hosts with less memory:
+
+```sh
+env IDR_QEMU_BUILD_MEMORY=4096 idr -D
+idr process start vm-some-machine
+```
 
 Follow the VM's output, including its serial console:
 
@@ -93,11 +101,12 @@ To discard the VM's disk contents and rebuild installed images:
 
 ```sh
 idr process stop vm-some-machine
-nix run .#nixosConfigurations.some-machine.config.system.build.idrQemu -- --force
+nix --offline -L run .#vm-some-machine -- --force
 ```
 
 This runs the rebuilt VM in the current terminal. The runner also accepts
-`--build-memory 8192` to set the image-build VM's RAM in MiB (default: 16384).
+`--build-memory 8192` to set the image-build VM's RAM in MiB, taking precedence
+over `IDR_QEMU_BUILD_MEMORY` (default: 16384).
 
 `idr-wipe-local-vm vm-some-machine` stops the VM and clears partition tables
 while leaving partition contents in place. Its next start boots the

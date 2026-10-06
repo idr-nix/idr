@@ -97,6 +97,7 @@ in {
         (import ./qemu/disks.nix {
           inherit lib;
           diskDevices = config.disko.devices.disk or {};
+          useAhci = pkgs.stdenv.hostPlatform.isAarch64;
         })
         // {
           inherit (cfg.base) preFormatFiles postFormatFiles;

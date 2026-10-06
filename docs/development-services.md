@@ -144,4 +144,11 @@ The hooks are installed on shell entry. To run them against all files:
 pre-commit run --all-files
 ```
 
+Installed hooks also work outside the development shell. When a shared checkout
+contains hooks installed on another host, or their Nix dependencies have been
+garbage collected, a local launcher runs `nix develop -c true` once to regenerate
+them before running the hook. Nix must be available on the host's `PATH` for this
+repair. Formatting failures still reject the commit; stage the formatted changes
+and commit again. A custom `core.hooksPath` is left under your control.
+
 To include enabled hooks in flake checks, set `pre-commit.check.enable = true`.

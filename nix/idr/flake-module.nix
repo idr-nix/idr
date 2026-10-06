@@ -7,7 +7,9 @@ top: {
 }: let
   cfg = config.idr;
 in {
-  imports = lib.attrValues (top.idr-lib.importFlakeModules ./. top);
+  imports =
+    lib.attrValues (top.idr-lib.importFlakeModules ./. top)
+    ++ [(lib.modules.importApply ../certs/project-module.nix top)];
 
   options.idr = {
     projectName = lib.mkOption {

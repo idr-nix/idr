@@ -128,7 +128,7 @@ in {
             isReadOnly = true;
           }) (secrets instance);
         config = {
-          imports = [(import ./instance.nix instance)];
+          imports = [(lib.modules.importApply ./instance.nix instance)];
         };
       })
     instances;

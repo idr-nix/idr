@@ -6,6 +6,11 @@ top: {
   ...
 }: let
   scripts = ../../scripts;
+  upstreamDeploy = top.inputs.deploy-rs.packages.${pkgs.stdenv.hostPlatform.system}.default;
+  deploy = upstreamDeploy.overrideAttrs (old: {
+    # Remote derivation copies should honor the same signature policy as local deployments.
+    patches = (old.patches or []) ++ [./remote-build-signatures.patch];
+  });
 
   idr-unlock-disks =
     pkgs.writers.writeNuBin "idr-unlock-disks" {
@@ -31,17 +36,21 @@ top: {
 
   idr-mk-images = pkgs.writeShellApplication {
     name = "idr-mk-images";
-    runtimeInputs = [pkgs.coreutils];
-    text = ''
-      exec ${lib.getExe idrNu} -n --no-std-lib --no-history ${scripts}/idr-mk-images.nu "$@"
-    '';
+    runtimeInputs = [pkgs.coreutils pkgs.flock];
+    text =
+      lib.optionalString pkgs.stdenv.hostPlatform.isDarwin ''
+        export IDR_IMAGE_BUILD_VM=${lib.escapeShellArg (lib.getExe top.self.packages.${pkgs.stdenv.hostPlatform.system}.idr-qemu-image-build-vm)}
+      ''
+      + ''
+        exec ${lib.getExe idrNu} -n --no-std-lib --no-history ${scripts}/idr-mk-images.nu "$@"
+      '';
   };
 in {
   commands = [
     {
       name = "idr-mk-images";
       package = idr-mk-images;
-      help = "Create disk images for a machine";
+      help = "Create or reuse disk images for a machine";
     }
     {
       name = "idr-unlock-disks";
@@ -60,9 +69,11 @@ in {
     }
     {
       name = "deploy";
-      package = top.inputs.deploy-rs.packages.${pkgs.stdenv.hostPlatform.system}.default;
+      package = deploy;
       help = "Deploy machine configurations";
     }
   ];
   packages = [pkgs.qemu];
+  # deploy-rs.lib.activate.nixos still embeds this package's activation helper.
+  idr.additionalPaths = [upstreamDeploy];
 }

@@ -8,6 +8,19 @@ top: moduleArgs @ {
 }: let
   cfg = config.idr.preset;
   pools = config.disko.devices.zpool or {};
+  managedDatasets = lib.concatLists (lib.mapAttrsToList (pool: poolConfig:
+    [pool]
+    ++ lib.mapAttrsToList (name: _: "${pool}/${name}")
+    (lib.filterAttrs (_: dataset: dataset.type == "zfs_fs") poolConfig.datasets))
+  pools);
+  activationMounts = lib.filterAttrs (_: fs:
+    fs.fsType
+    == "zfs"
+    && lib.elem fs.device managedDatasets
+    && !utils.fsNeededForBoot fs
+    && !(lib.any (option: lib.elem option fs.options) ["noauto" "nofail" "x-systemd.automount"]))
+  config.fileSystems;
+  activationMountUnits = lib.mapAttrsToList (_: fs: "${utils.escapeSystemdPath fs.mountPoint}.mount") activationMounts;
 in {
   options.idr.preset.base = {
     importZpoolsBeforeLuks = lib.mkOption {
@@ -41,11 +54,19 @@ in {
           (lib.filterAttrs (_: dataset: dataset.type == "zfs_volume") poolConfig.datasets))
         pools);
       };
-      systemd.services.disko-zfs = lib.mkIf config.disko.zfs.enable {
-        # Mounts added by a deployment must wait for their datasets.
-        before =
-          lib.mapAttrsToList (mountpoint: _: "${utils.escapeSystemdPath mountpoint}.mount")
-          (lib.filterAttrs (_: fs: fs.fsType == "zfs" && !utils.fsNeededForBoot fs) config.fileSystems);
+      systemd.services = lib.mkIf config.disko.zfs.enable {
+        disko-zfs = {
+          requiredBy = ["sysinit-reactivation.target"];
+          # Reconciliation and mounting must precede activation's ownership setup.
+          before =
+            ["sysinit-reactivation.target"]
+            ++ lib.mapAttrsToList (_: fs: "${utils.escapeSystemdPath fs.mountPoint}.mount")
+            (lib.filterAttrs (_: fs: fs.fsType == "zfs" && !utils.fsNeededForBoot fs) config.fileSystems);
+        };
+        systemd-tmpfiles-resetup = {
+          requires = activationMountUnits;
+          after = activationMountUnits;
+        };
       };
     }))
 

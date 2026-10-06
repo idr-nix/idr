@@ -13,15 +13,6 @@ top: {
 
   config.flake.modules.devshell.idr = lib.modules.importApply ./devshell.nix top;
 
-  config.perSystem = {pkgs, ...}: {
-    checks = lib.optionalAttrs (pkgs.stdenv.hostPlatform.system == "x86_64-linux") {
-      nixos-installation = import ./checks/installation.nix {
-        inherit pkgs;
-        inherit (top) inputs self;
-      };
-    };
-  };
-
   config.flake.deploy = {
     sshUser = lib.mkDefault "root";
     nodes = lib.concatMapAttrs (name: machine: let

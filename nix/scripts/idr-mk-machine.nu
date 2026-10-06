@@ -2,6 +2,7 @@ use idr-common.nu [host-data-dir]
 
 def --wrapped main [
   --recreate (-r) # Recreate the generated machine configuration and setup keys.
+  --system (-s): string = "x86_64-linux" # Nix system of the machine.
   --help (-h) # Display the help message for this command.
   machine_name: string # Machine name; lowercase and dash-separated is recommended.
   ...copier_args # Additional arguments forwarded to Copier.
@@ -52,5 +53,5 @@ def --wrapped main [
     }
   }
 
-  run-external copier copy "--trust" ($env.TEMPLATES_DIR | path join "machine") nix/machine "-d" $"name=($machine_name)" ...($copier_args)
+  run-external copier copy "--trust" ($env.TEMPLATES_DIR | path join "machine") nix/machine "-d" $"name=($machine_name)" "-d" $"system=($system)" ...($copier_args)
 }

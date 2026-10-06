@@ -1,0 +1,22 @@
+# Synthetic public directory identities; never production credentials.
+[alice]
+firstName = "Alice"
+lastName = "Reader"
+mail = "old-address@example.com"
+uidNumber = 1100
+gidNumber = 1101
+# Public test password: directory-password. Exercise bare crypt hash handling.
+hashedPassword = "$6$ldaptest$UnmXTeiIn7Cs3zsAKvpDQR0fzl.fEDA2lzxrsGkDVOvhoC29.YjIuP1px.wLNvjpCrdBDsHgJyEaJ1Qqj9dsq."
+groups = ["developers", "operators"]
+sshPublicKey = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIEZgLm29PGClJ3v07vyK6EeDRzscn+QibApNMiXwopSH ldap-test"
+agePublicKey = "age1k3ke9s9wfd5wrrwvg7r7fzfxgjljzr4t8wmq3xr45rm0kcunhefs46ah7s"
+
+[bob]
+uid = "robert"
+firstName = "Robert"
+lastName = "Reader"
+mail = "robert@example.com"
+groups = ["developers"]
+
+[robot]
+system = true

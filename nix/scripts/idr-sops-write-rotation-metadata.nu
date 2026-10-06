@@ -1,4 +1,5 @@
 use idr-common.nu [save-atomic]
+use idr-sops.nu [decrypt-if-accessible]
 
 def main [] {
   if not ($env.PRJ_ROOT | path exists) or (ls --directory --long $env.PRJ_ROOT | first | get readonly) {
@@ -23,7 +24,7 @@ def main [] {
   if ($files | is-not-empty) {
     $files | to json | save-atomic $pending_files_path
 
-    $files | par-each {|file|
+    let pending = $files | par-each {|file|
       let raw_secrets = open $file | default {}
       if ("sops" in $raw_secrets) {
         let columns = $raw_secrets | columns | where $it != "sops"
@@ -32,9 +33,12 @@ def main [] {
         }
 
         if ($columns | any $need_rotation_metadata) or ($columns != ($columns | sort)) {
-          let secrets = sops --decrypt $file | if ($file | str ends-with ".yaml") {
-            # Preserve the final newline used by YAML block scalars.
-            decode utf-8 | from yaml
+          let decrypted = decrypt-if-accessible $file
+          if $decrypted == null {
+            return $file
+          }
+          let secrets = $decrypted | if ($file | str ends-with ".yaml") {
+            from yaml
           } else {
             from json
           }
@@ -51,6 +55,12 @@ def main [] {
           $encrypted | save-atomic $file
         }
       }
+      null
+    }
+
+    if ($pending | is-not-empty) {
+      $pending | to json | save-atomic $pending_files_path
+      return
     }
   }
 

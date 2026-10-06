@@ -15,6 +15,7 @@ in {
       nix = {
         settings = {
           experimental-features = ["nix-command" "flakes"];
+          sandbox-fallback = false;
         };
       };
     }

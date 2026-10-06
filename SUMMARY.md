@@ -9,7 +9,7 @@
   - [Automatic disk unlocking](./nix/disk-unlock/README.md)
 - [Deployment](./docs/deployment.md)
 - [Key rotation](./docs/key-rotation.md)
-- [Certificates](./nix/idr/certs/README.md)
+- [Certificates](./nix/certs/README.md)
 - [Backups](./nix/backup/README.md)
 - [Local VMs](./docs/local-vms.md)
 - [Local networking and workspaces](./docs/local-networking.md)

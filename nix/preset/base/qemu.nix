@@ -47,8 +47,9 @@ in {
 
     graphics = lib.mkOption {
       description = ''
-        Whether config.system.build.idrQemu opens QEMU's GTK graphical
-        display. When disabled, `-display none` is passed to QEMU.
+        Whether config.system.build.idrQemu opens QEMU's graphical display
+        (GTK on Linux, Cocoa on macOS). When disabled, `-display none` is
+        passed to QEMU unless an explicit display option overrides it.
       '';
       type = lib.types.bool;
       default = false;
@@ -134,10 +135,11 @@ in {
           device.
         '';
         type = with lib.types; listOf str;
-        default = [
-          "-vga"
-          "virtio"
-        ];
+        default =
+          if pkgs.stdenv.hostPlatform.isAarch64
+          then ["-device" "virtio-gpu-pci"]
+          else ["-vga" "virtio"];
+        defaultText = lib.literalExpression ''if pkgs.stdenv.hostPlatform.isAarch64 then ["-device" "virtio-gpu-pci"] else ["-vga" "virtio"]'';
       };
     };
 
@@ -156,7 +158,14 @@ in {
     displayEnabled = qemuCfg.graphics || qemuCfg.vnc.enable;
     diskBuses = map (disk: disk.qemu.bus) (builtins.attrValues meta.disks);
     qemuInitrdModules = lib.unique (
-      lib.optionals (builtins.elem "ata" diskBuses) ["ata_piix" "sd_mod"]
+      lib.optionals (builtins.elem "ata" diskBuses) [
+        (
+          if pkgs.stdenv.hostPlatform.isAarch64
+          then "ahci"
+          else "ata_piix"
+        )
+        "sd_mod"
+      ]
       ++ lib.optionals (builtins.elem "nvme" diskBuses) ["nvme"]
       ++ lib.optionals (builtins.elem "scsi" diskBuses) ["sd_mod" "virtio_pci" "virtio_scsi"]
       ++ lib.optionals (builtins.elem "virtio" diskBuses) ["virtio_blk" "virtio_pci"]
@@ -167,7 +176,9 @@ in {
       sshPorts = config.services.openssh.ports;
     });
     qemuOptions =
-      [
+      # aarch64 QEMU has no default machine type.
+      lib.optionals pkgs.stdenv.hostPlatform.isAarch64 ["-machine" "virt"]
+      ++ [
         "-m"
         (toString qemuCfg.memorySize)
         "-drive"
@@ -179,11 +190,6 @@ in {
         "-fw_cfg"
         "name=opt/io.systemd.credentials/idr.installer-config,file=${installerConfig}"
       ]
-      ++ (
-        if qemuCfg.graphics
-        then ["-display" "gtk"]
-        else ["-display" "none"]
-      )
       ++ lib.optionals (qemuCfg.firmware != null) [
         "-bios"
         qemuCfg.firmware
@@ -201,16 +207,18 @@ in {
       {
         IDR_QEMU_MACHINE = config.networking.hostName;
         IDR_QEMU_MACHINE_ID = cfg.base.id;
+        IDR_QEMU_SYSTEM = pkgs.stdenv.hostPlatform.system;
         IDR_QEMU_NETWORK_PREFIX = config.idr.qemu.networkPrefix;
         IDR_QEMU_UNLOCK_PORT = toString config.boot.initrd.network.ssh.port;
         IDR_QEMU_OPTIONS_JSON = builtins.toJSON qemuOptions;
+        IDR_QEMU_GRAPHICS_ENABLED = builtins.toJSON qemuCfg.graphics;
         IDR_QEMU_VNC_ENABLED = builtins.toJSON qemuCfg.vnc.enable;
       }
       // lib.optionalAttrs (cfg.base.defaultSopsFile != null) {
         IDR_QEMU_SOPS_CONFIG = toString sopsConfig;
         IDR_QEMU_SOPS_FILENAME = sopsFilename;
       };
-    runtimeCommand = ''
+    runtimeCommandFor = runtime: ''
       # Process Compose expands braced variables before reading its settings.
       # Keep defaults explicit so JSON-valued variables reach the shell intact.
       if [[ ! -v PRJ_ROOT ]]; then
@@ -221,13 +229,12 @@ in {
       if [[ ! -v IDR_QEMU_EXTRA_OPTIONS_JSON || -z "$IDR_QEMU_EXTRA_OPTIONS_JSON" ]]; then
         export IDR_QEMU_EXTRA_OPTIONS_JSON="[]"
       fi
-      exec ${lib.getExe qemuCfg.runtimePackage} "$@"
+      exec ${lib.getExe runtime} "$@"
     '';
+    runtimeCommand = runtimeCommandFor qemuCfg.runtimePackage;
   in {
-    # Disko substitutes virtio disks while building images; keep the machine's original identities.
-    disko.imageBuilder.extraConfig.system.build.idr = lib.mkForce config.system.build.idr;
-
     boot.initrd.availableKernelModules = qemuInitrdModules;
+    boot.initrd.kernelModules = qemuInitrdModules;
     boot.initrd.services.udev.rules = qemuUdevRules;
 
     services.udev.extraRules = qemuUdevRules;
@@ -240,7 +247,11 @@ in {
       lib.mkIf (displayEnabled && qemuCfg.clipboard.enable)
       (lib.mkDefault "/dev/virtio-ports/com.redhat.spice.0");
 
-    idr.meta.preset.base.qemu.firmware = lib.mkDefault "${top.inputs.idr.packages.${pkgs.stdenv.hostPlatform.system}.idr-qemu-firmware}/FV/OVMF.fd";
+    idr.meta.preset.base.qemu.firmware = lib.mkDefault "${top.inputs.idr.packages.${pkgs.stdenv.hostPlatform.system}.idr-qemu-firmware}/FV/${
+      if pkgs.stdenv.hostPlatform.isAarch64
+      then "QEMU_EFI.fd"
+      else "OVMF.fd"
+    }";
 
     system.build.idrQemu = builders.writeShellApplication {
       name = "idrQemu";
@@ -251,6 +262,7 @@ in {
         # the standalone wrapper, whose path changes with the project snapshot.
         processCompose = {
           command = runtimeCommand;
+          commandFor = runtimeCommandFor;
           environment = lib.mapAttrsToList (name: value: "${name}=${value}") runtimeEnvironment;
         };
       };

@@ -66,9 +66,12 @@ top: {
       current = "${lib.optionalString cfg.impermanence.enable cfg.impermanence.persistDir}/var/lib/idr/disk-key-recovery/current";
     };
   };
-  cleanupNu = pkgs.nushell.override {
-    additionalFeatures = features: features ++ ["ctrlc/termination"];
-  };
+  # Upstream already tests this version; its debug test build needs much memory.
+  cleanupNu =
+    (pkgs.nushell.override {
+      additionalFeatures = features: features ++ ["ctrlc/termination"];
+    })
+    .overrideAttrs {doCheck = false;};
   applyDiskKeys = pkgs.writers.makeScriptWriter {
     interpreter = "${lib.getExe cleanupNu} --no-config-file";
     makeWrapperArgs = ["--prefix" "PATH" ":" (lib.makeBinPath [pkgs.cryptsetup config.nix.package pkgs.coreutils])];

@@ -1,7 +1,5 @@
 top: {
   lib,
-  config,
-  inputs,
   flake-parts-lib,
   ...
 }: {
@@ -12,28 +10,26 @@ top: {
       inherit (pkgs) writeShellApplication writeText;
     };
 
-    packages = lib.optionalAttrs pkgs.stdenv.hostPlatform.isLinux {
-      idr-qemu-firmware = pkgs.OVMF.fd;
-      idr-qemu-runtime = pkgs.callPackage ./base/qemu/runtime.nix {};
-      idr-qemu-installer = import ./base/qemu/installer.nix {
-        inherit pkgs;
-        nixosImages = top.inputs.nixos-images;
+    packages = let
+      imageBuildVm = pkgs.callPackage ./base/qemu/image-build-vm.nix {
+        inherit (top.inputs.nixpkgs.lib) nixosSystem;
+        linuxSystem = "${pkgs.stdenv.hostPlatform.parsed.cpu.name}-linux";
       };
-    };
-
-    checks = lib.optionalAttrs pkgs.stdenv.hostPlatform.isLinux {
-      nixos-base-presets = import ./base/checks/defaults.nix {
-        inherit pkgs;
-        inherit (top) inputs self;
+    in
+      {
+        idr-qemu-runtime = pkgs.callPackage ./base/qemu/runtime.nix {
+          imageBuildVm = lib.optionalDrvAttr pkgs.stdenv.hostPlatform.isDarwin imageBuildVm;
+        };
+      }
+      // lib.optionalAttrs pkgs.stdenv.hostPlatform.isDarwin {
+        idr-qemu-image-build-vm = imageBuildVm;
+      }
+      // lib.optionalAttrs pkgs.stdenv.hostPlatform.isLinux {
+        idr-qemu-firmware = pkgs.callPackage ./base/qemu/firmware.nix {};
+        idr-qemu-installer = import ./base/qemu/installer.nix {
+          inherit pkgs;
+          nixosImages = top.inputs.nixos-images;
+        };
       };
-      nixos-container-reload = import ./base/checks/container-reload.nix {
-        inherit pkgs;
-        inherit (top) inputs self;
-      };
-      nixos-disk-key-rotation = import ./base/checks/key-rotation.nix {
-        inherit pkgs;
-        inherit (top) inputs self;
-      };
-    };
   };
 }

@@ -1,5 +1,6 @@
 {
   lib,
+  stdenv,
   writeShellApplication,
   runCommand,
   writers,
@@ -15,6 +16,7 @@
   util-linuxMinimal,
   rofi,
   socat,
+  imageBuildVm ? null,
 }: let
   scripts = ../../../scripts;
   # QEMU finds this packaged ACL beside the copied helper.
@@ -50,28 +52,46 @@
       exec ${bridgeHelper}/libexec/qemu-bridge-helper --use-vnet --br=idr0 $"--fd=($fd)"
     }
   '';
+  darwinAskpass = writeShellApplication {
+    name = "idr-qemu-askpass";
+    text = ''
+      exec /usr/bin/osascript -e "text returned of (display dialog \"$1\" default answer \"\" with hidden answer)"
+    '';
+  };
 in
   writeShellApplication {
     name = "idr-qemu-runtime";
-    passthru = {inherit networkBootstrap;};
-    runtimeInputs = [
-      coreutils
-      gitMinimal
-      iproute2
-      nix
-      (nushell.override {
-        # Stop background unlock commands when the runner receives SIGTERM.
-        additionalFeatures = features: features ++ ["ctrlc/termination"];
-      })
-      openssl
-      openssh
-      qemu
-      sops
-      util-linuxMinimal
-    ];
-    text = ''
-      export IDR_QEMU_NETWORK_BOOTSTRAP=${lib.escapeShellArg (lib.getExe networkBootstrap)}
-      export IDR_MK_IMAGES_SCRIPT=${lib.escapeShellArg "${scripts}/idr-mk-images.nu"}
-      exec nu -n --no-std-lib --no-history ${scripts}/idr-qemu.nu "$@"
-    '';
+    passthru = lib.optionalAttrs stdenv.hostPlatform.isLinux {inherit networkBootstrap;};
+    runtimeInputs =
+      [
+        coreutils
+        gitMinimal
+        nix
+        # Stop background unlock commands when the runner receives SIGTERM. Upstream
+        # already tests this version; its debug test build needs much memory.
+        ((nushell.override {
+            additionalFeatures = features: features ++ ["ctrlc/termination"];
+          })
+          .overrideAttrs {doCheck = false;})
+        openssl
+        openssh
+        qemu
+        sops
+        util-linuxMinimal
+      ]
+      ++ lib.optionals stdenv.hostPlatform.isLinux [iproute2];
+    text =
+      lib.optionalString stdenv.hostPlatform.isLinux ''
+        export IDR_QEMU_NETWORK_BOOTSTRAP=${lib.escapeShellArg (lib.getExe networkBootstrap)}
+      ''
+      + lib.optionalString (imageBuildVm != null) ''
+        export IDR_IMAGE_BUILD_VM=${lib.escapeShellArg (lib.getExe imageBuildVm)}
+      ''
+      + lib.optionalString stdenv.hostPlatform.isDarwin ''
+        export SUDO_ASKPASS="''${SUDO_ASKPASS:-${lib.getExe darwinAskpass}}"
+      ''
+      + ''
+        export IDR_MK_IMAGES_SCRIPT=${lib.escapeShellArg "${scripts}/idr-mk-images.nu"}
+        exec nu -n --no-std-lib --no-history ${scripts}/idr-qemu.nu "$@"
+      '';
   }

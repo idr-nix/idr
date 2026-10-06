@@ -21,5 +21,6 @@ in {
     darwin = {};
     service = {};
     generic = {};
+    nixosTest = {};
   };
 }

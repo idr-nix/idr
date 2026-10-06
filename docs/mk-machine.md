@@ -58,6 +58,9 @@ This will generate the configuration in:
 ./nix/machine/<machine-name>
 ```
 
+The machine defaults to `x86_64-linux`. Use `--system` (`-s`) for another
+Nix system, for example `idr-mk-machine -s aarch64-linux some-machine`.
+
 The idr-mk-machine command creates the following files in `./nix/machine/<machine-name>`:
 
 1. `hardware-specific.nix` - sample disk layout and network configuration

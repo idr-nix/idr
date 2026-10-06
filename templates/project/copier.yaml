@@ -17,4 +17,4 @@ _tasks:
   - chmod u+rw nix .envrc .env flake.nix flake.lock nix/.editorconfig SUMMARY.md README.md book.toml
   - git init
   - git add flake.nix flake.lock .envrc nix/.editorconfig SUMMARY.md README.md book.toml
-  - nix --offline -vL develop -c idr-setup-project
+  - "\"$IDR_SETUP_PROJECT\""

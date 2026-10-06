@@ -43,7 +43,75 @@ in {
         full = "generic";
         short = "generic";
       }
+      {
+        full = "nixosTest";
+        short = "nixos-test";
+      }
     ];
+    # Replace store paths in declarations with paths relative to the documented flake,
+    # or to one of its inputs as `<input>/path`, so the options JSON has no store paths.
+    relativeDeclarations = flake: let
+      inputNames =
+        lib.mapAttrs' (name: input:
+          lib.nameValuePair (builtins.unsafeDiscardStringContext input.outPath) name) (flake.inputs or {});
+    in
+      option:
+        option
+        // {
+          declarations = map (declaration: let
+            match = builtins.match "(${builtins.storeDir}/[^/]+)/(.*)" (toString declaration);
+            storePath = builtins.elemAt match 0;
+            path = builtins.elemAt match 1;
+          in
+            # The module system declares its own options in nixpkgs' lib/modules.nix.
+            if declaration == "lib/modules.nix" && flake ? inputs.nixpkgs
+            then "<nixpkgs>/${declaration}"
+            else if match == null
+            then declaration
+            else if storePath == builtins.unsafeDiscardStringContext flake.outPath
+            then path
+            else if inputNames ? ${storePath}
+            then "<${inputNames.${storePath}}>/${path}"
+            else declaration)
+          option.declarations;
+        };
+    # Home Manager options, evaluated like its own docs-json.
+    homeManagerDoc = input: let
+      hmLib =
+        (import "${input}/docs" ({inherit pkgs;} // lib.importJSON "${input}/release.json"))._internal.docsLib;
+      # Refer to packages as `${pkgs.name}` instead of instantiating them.
+      scrubDerivations = prefix:
+        lib.mapAttrs (name: value: let
+          path = "${prefix}.${name}";
+        in
+          if lib.isAttrs value
+          then
+            scrubDerivations path value
+            // lib.optionalAttrs (lib.isDerivation value) {outPath = "\${${path}}";}
+          else value);
+    in
+      pkgs.nixosOptionsDoc {
+        warningsAreErrors = false;
+        transformOptions = relativeDeclarations input;
+        options =
+          (hmLib.evalModules {
+            modules =
+              import "${input}/modules/modules.nix" {
+                lib = hmLib;
+                inherit pkgs;
+                check = false;
+              }
+              ++ [
+                {
+                  _module.args = {
+                    pkgs = lib.mkForce (scrubDerivations "pkgs" pkgs);
+                    pkgs_i686 = lib.mkForce {};
+                  };
+                }
+              ];
+            class = "homeManager";
+          }).options;
+      };
     mkModuleDoc = {
       type,
       modules,
@@ -56,6 +124,11 @@ in {
     in
       pkgs.nixosOptionsDoc {
         warningsAreErrors = false;
+        transformOptions = relativeDeclarations (
+          if source == null
+          then self
+          else source
+        );
         options = let
           evaluated =
             (evalModules {
@@ -197,6 +270,7 @@ in {
               "(nixos)" =
                 (pkgs.nixosOptionsDoc {
                   warningsAreErrors = false;
+                  transformOptions = relativeDeclarations input;
                   options =
                     (input.lib.nixosSystem {
                       inherit system;
@@ -233,7 +307,7 @@ in {
                     || (type.full == "homeManager" && input ? lib.homeManagerConfiguration)) {
                     "(${type.short})" =
                       if (type.full == "homeManager" && input ? lib.homeManagerConfiguration)
-                      then input.packages.${system}.docs-json + "/share/doc/home-manager/options.json"
+                      then (homeManagerDoc input).optionsJSON + "/share/doc/nixos/options.json"
                       else let
                         modules =
                           lib.optionalAttrs (input ? "${type.full}Module") {

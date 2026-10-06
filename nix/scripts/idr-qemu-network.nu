@@ -41,7 +41,8 @@ export def options [] {
       }
     }
     macos => {
-      options: $"vmnet-shared,id=idr-local,nat66-prefix=($env.IDR_QEMU_NETWORK_PREFIX):($workspace_id | str substring 0..<4)::/64"
+      # vmnet takes the /64 prefix without a length.
+      options: $"vmnet-shared,id=idr-local,nat66-prefix=($env.IDR_QEMU_NETWORK_PREFIX):($workspace_id | str substring 0..<4)::"
       prefix_length: 64
     }
   }

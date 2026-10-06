@@ -46,13 +46,11 @@ def main [] {
     $lock | to json --indent 2 | save -f flake.lock
 
     open --raw flake.nix | str replace $env.IDR_PATH $"git+($env.IDR_GIT_URL)" | save -f flake.nix
-
-    nix --offline -L flake lock
   }
 
-  git add flake.nix flake.lock .gitignore
-
   nix --offline -L develop -c true
+
+  git add flake.nix flake.lock .gitignore
 
   if (which direnv | is-not-empty) {
     direnv allow

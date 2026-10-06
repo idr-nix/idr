@@ -1,5 +1,9 @@
 name:
   type: str
+system:
+  type: str
+  default: x86_64-linux
+  when: false
 state_version:
   type: str
   default: "{{ '$IDR_NIXOS_RELEASE' | expandvars }}"

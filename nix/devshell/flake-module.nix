@@ -1,18 +1,108 @@
-top: moduleArgs @ {
-  inputs,
-  lib,
-  config,
-  flake-parts-lib,
-  ...
-}: {
-  flake.modules.devshell.idr = flake-parts-lib.importApply ./devshell.nix top;
+top: {flake-parts-lib, ...}: {
+  imports = top.idr-lib.importApplyAll top [
+    ./checks/etcd-cluster.nix
+    ./checks/etcd-proxy.nix
+    ./checks/etcd-rbac.nix
+    ./checks/mk-project.nix
+    ./checks/mk-project-git.nix
+    ./checks/mk-project-direnv.nix
+    ./checks/mk-project-existing-flake.nix
+    ./checks/mk-machine.nix
+    ./checks/mk-machine-system.nix
+    ./checks/machine-hardware-report.nix
+    ./checks/team-input.nix
+    ./checks/team-ssh-expiry.nix
+    ./checks/team-ssh-revocation.nix
+    ./checks/mk-machine-operator-access.nix
+    ./checks/rotate-keys-requires-operator.nix
+    ./checks/rotate-keys.nix
+    ./checks/rotate-keys-intervals.nix
+    ./checks/rotate-keys-deploy.nix
+    ./checks/revoke-old-disk-keys.nix
+    ./checks/rotate-keys-recovery.nix
+    ./checks/unlock-server-recipients.nix
+    ./checks/automatic-disk-unlock.nix
+    ./checks/automatic-disk-unlock-refresh.nix
+    ./checks/mk-images.nix
+    ./checks/mk-images-reuse.nix
+    ./checks/local-vm-installation.nix
+    ./checks/installation-confirmations.nix
+    ./checks/local-vm-start.nix
+    ./checks/local-vm-workspaces.nix
+    ./checks/local-vm-network-prefix.nix
+    ./checks/local-vm-host-network.nix
+    ./checks/shared-project-hosts.nix
+    ./checks/local-vm-deploy.nix
+    ./checks/local-vm-deploy-modes.nix
+    ./checks/local-vm-rollback.nix
+    ./checks/local-vm-auto-rollback.nix
+    ./checks/local-vm-magic-rollback.nix
+    ./checks/local-vm-remote-build.nix
+    ./checks/local-vm-reboot.nix
+    ./checks/copy-extra-files.nix
+    ./checks/generated-project-files.nix
+    ./checks/local-vm-manual-unlock.nix
+    ./checks/generated-project-files-post-write.nix
+    ./checks/mk-role.nix
+    ./checks/external-role-secrets.nix
+    ./checks/mk-module.nix
+    ./checks/development-docs-server.nix
+    ./checks/development-shell-tools.nix
+    ./checks/devshell-partial-secret-access.nix
+    ./checks/documentation-build.nix
+    ./checks/development-shell-startup.nix
+    ./checks/devshell-reload.nix
+    ./checks/development-shell-startup-ordering.nix
+    ./checks/development-process-controls.nix
+    ./checks/development-process-logs.nix
+    ./checks/development-process-ui.nix
+    ./checks/documentation-open.nix
+    ./checks/runtime-secrets-files.nix
+    ./checks/systemd-secret-environment.nix
+    ./checks/runtime-secrets-reload.nix
+    ./checks/runtime-secrets-environment.nix
+    ./checks/runtime-secrets-manual-refresh.nix
+    ./checks/systemd-secret-environment-reload.nix
+    ./checks/development-git-hooks.nix
+    ./checks/development-git-hooks-check.nix
+    ./checks/development-process-reconfigure.nix
+    ./checks/project-ssh-config.nix
+    ./checks/local-workspace-shell.nix
+    ./checks/documentation-regenerate.nix
+    ./checks/development-redis.nix
+    ./checks/documentation-assets.nix
+    ./checks/documentation-generated-markdown.nix
+    ./checks/documentation-special-args.nix
+    ./checks/ldap-directory-updates.nix
+    ./checks/documentation-disabled.nix
+    ./checks/documentation-search.nix
+    ./checks/documentation-library.nix
+    ./checks/preset-container-restart.nix
+    ./checks/preset-container-secrets.nix
+    ./checks/service-loopback-addresses.nix
+    ./checks/ldap-secret-updates.nix
+    ./checks/ldap-directory.nix
+    ./checks/certificates-issue.nix
+    ./checks/certificates-renew.nix
+    ./checks/backup-client-selection.nix
+    ./checks/certificates-runtime.nix
+    ./checks/backup-local-snapshots.nix
+    ./checks/preset-container-web.nix
+    ./checks/backup-replication.nix
+    ./checks/ldap-network-access.nix
+    ./checks/backup-workspace-address.nix
+    ./checks/local-vm-serial.nix
+    ./checks/backup-host-key-rotation.nix
+    ./checks/local-vm-vnc.nix
+    ./checks/preset-dataset-deploy.nix
+    ./checks/mk-images-formats.nix
+    ./checks/local-vm-force.nix
+    ./checks/local-vm-first-start.nix
+    ./checks/local-vm-runner-options.nix
+    ./checks/local-vm-graphics.nix
+    ./checks/local-vm-persistence.nix
+    ./checks/local-vm-image-rollback.nix
+  ];
 
-  perSystem = {pkgs, ...}: {
-    checks = lib.optionalAttrs (pkgs.stdenv.hostPlatform.system == "x86_64-linux") {
-      nixos-project-tools = import ./checks/project-tools/test.nix {
-        inherit pkgs;
-        inherit (top) inputs self;
-      };
-    };
-  };
+  flake.modules.devshell.idr = flake-parts-lib.importApply ./devshell.nix top;
 }

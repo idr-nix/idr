@@ -10,9 +10,12 @@ top: {
 
   scripts = ../scripts;
 
-  cleanupNu = pkgs.nushell.override {
-    additionalFeatures = features: features ++ ["ctrlc/termination"];
-  };
+  # Upstream already tests this version; its debug test build needs much memory.
+  cleanupNu =
+    (pkgs.nushell.override {
+      additionalFeatures = features: features ++ ["ctrlc/termination"];
+    })
+    .overrideAttrs {doCheck = false;};
 
   ssh = pkgs.writers.writeNuBin "ssh" ''
     def --wrapped main [...args] {
@@ -55,6 +58,7 @@ top: {
       export IDR_GIT_LAST_MODIFIED="${toString (top.self.lastModified or 0)}"
       export IDR_GIT_NAR_HASH="${top.self.narHash}"
       export IDR_PATH="${top.self}"
+      export IDR_SETUP_PROJECT=${lib.getExe idr-setup-project}
       copier copy --trust ${top.self}/templates/project . "$@" -d idr_path=${top.self}
     '';
   };

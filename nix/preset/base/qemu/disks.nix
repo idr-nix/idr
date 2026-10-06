@@ -1,6 +1,7 @@
 {
   lib,
   diskDevices,
+  useAhci ? false,
 }: let
   rawDisks =
     lib.mapAttrs (diskName: diskCfg: let
@@ -148,6 +149,10 @@
         (lib.filter (diskName: rawDisks.${diskName}.qemu.bus == bus) diskNames))
   );
   hasAta = builtins.length (builtins.attrNames busIndexes.ata) > 0;
+  ataDiskLimit =
+    if useAhci
+    then 6
+    else 4;
   nvmeDiskCount = builtins.length (builtins.attrNames busIndexes.nvme);
   deviceLetters = lib.stringToCharacters "abcdefghijklmnopqrstuvwxyz";
   directTypes = ["nvme-direct" "scsi-direct" "virtio-direct"];
@@ -174,7 +179,7 @@
       if qemuType == null
       then false
       else if qemuType == "ata"
-      then busIndex < 4
+      then busIndex < ataDiskLimit
       else if disk.qemu.bus == "scsi" && busIndex >= 256
       then false
       else if qemuType == "nvme-direct"
@@ -187,8 +192,12 @@
       then "partition symlinks cannot identify whole-disk QEMU images"
       else if qemuType == null
       then "the disk identity cannot be reproduced by the QEMU runner"
-      else if qemuType == "ata" && busIndex >= 4
-      then "QEMU's built-in IDE controller supports at most four ATA disks"
+      else if qemuType == "ata" && busIndex >= ataDiskLimit
+      then "QEMU's ${
+        if useAhci
+        then "AHCI"
+        else "built-in IDE"
+      } controller supports at most ${toString ataDiskLimit} ATA disks"
       else if disk.qemu.bus == "scsi" && busIndex >= 256
       then "QEMU's SCSI controller supports at most 256 disks"
       else if qemuType == "scsi-direct" && hasAta
@@ -247,6 +256,10 @@
         if disk.qemu.type == "ata"
         then disk.qemu.busIndex - (ideBus * 2)
         else null;
+      ataAddress =
+        if useAhci
+        then "bus=idr-ahci.${toString disk.qemu.busIndex},unit=0"
+        else "bus=ide.${toString ideBus},unit=${toString ideUnit}";
     in
       # Namespace boot indices publish an invalid firmware path in QEMU; use the controller.
       if builtins.elem disk.qemu.type ["nvme-eui" "nvme-nguid"]
@@ -293,7 +306,7 @@
         "-drive"
         "file=${imageName}.qcow2,format=qcow2,if=none,id=${driveId}"
         "-device"
-        "ide-hd,bus=ide.${toString ideBus},unit=${toString ideUnit},model=${disk.qemu.model},serial=${disk.qemu.identifier},drive=${driveId},${bootIndex}"
+        "ide-hd,${ataAddress},model=${disk.qemu.model},serial=${disk.qemu.identifier},drive=${driveId},${bootIndex}"
       ]
       else [
         "-drive"
@@ -310,7 +323,9 @@ in {
       ''
   ) (builtins.attrValues disks);
   qemuOptions =
-    (lib.optionals needsScsiBus [
+    # ARM's virt machine has no built-in IDE controller.
+    lib.optionals (useAhci && hasAta) ["-device" "ich9-ahci,id=idr-ahci"]
+    ++ (lib.optionals needsScsiBus [
       "-device"
       "virtio-scsi-pci,id=scsi0"
     ])

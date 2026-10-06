@@ -1,0 +1,15 @@
+diff --git a/src/push.rs b/src/push.rs
+--- a/src/push.rs
++++ b/src/push.rs
+@@ -500,6 +500,10 @@
+             .arg(derivation_name)
+             .env("NIX_SSHOPTS", ssh_opts_str.clone());
+-
++
++        if !data.check_sigs {
++            copy_command.arg("--no-check-sigs");
++        }
++
+         if let Some(pb) = &data.deploy_data.progressbar {
+             // Concurrent deploy: route nix's output through the spinner.
+             copy_command.arg("--log-format").arg("internal-json");

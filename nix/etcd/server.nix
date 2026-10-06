@@ -120,7 +120,9 @@ in {
       {
         systemd-networkd = {
           wants = networkTargets;
-          after = networkTargets;
+          # networkd starts before sysinit, so restart targets alone do not
+          # guarantee that SOPS and generated credentials exist yet.
+          after = ["sops-install-secrets.service" "idr-secrets.service"] ++ networkTargets;
           partOf = networkTargets;
           serviceConfig.LoadCredential = lib.mapAttrsToList (name: secret: "${name}:${secret.path}") networkSecrets;
         };

@@ -7,7 +7,7 @@ top: {
 }: {
   flake.nixosConfigurations."{{ name }}" = with inputs.nixpkgs.lib;
     makeOverridable nixosSystem {
-      system = "x86_64-linux";
+      system = "{{ system }}";
       modules = top.idr-lib.importApplyAll top [./configuration.nix];
     };
 }
