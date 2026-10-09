@@ -51,14 +51,16 @@ def image-signature [file: string] {
   ^stat --printf '%i:%s:%y:%z' $file | str trim
 }
 
-def main [
+def --wrapped main [
+  --help (-h) # Show command help
   --build-memory (-m): int = 16384 # Memory in MiB for the nested Disko build VM
-  --jobs (-j): int = 0 # Concurrent image conversions (0: automatic, at most two)
+  --jobs (-j): int = 0 # Concurrent disk setup and conversions (0: automatic, at most two)
   --type (-t): string = "qcow2" # raw|qcow2|vmdk, etc - any format supported by qemu-img
   --source: string # Reuse images from this directory (default: the machine's idr -D disk directory)
   --force (-f) # Generate fresh installed images instead of reusing images
   machine_name: string
   destination: string = "."
+  ...qemu_args: string # Additional options passed to qemu-img convert
 ] {
   if "PRJ_ROOT" not-in $env {
     error make {msg: "PRJ_ROOT environment variable is required."}
@@ -67,8 +69,11 @@ def main [
     error make {msg: "Invalid image format"}
   }
   if $jobs < 0 {
-    error make {msg: "Conversion jobs must be zero (automatic) or a positive integer"}
+    error make {msg: "Image jobs must be zero (automatic) or a positive integer"}
   }
+  # Wrapped commands can parse the first converter option as the optional destination.
+  let qemu_args = if ($destination | str starts-with "-") { [$destination] ++ $qemu_args } else { $qemu_args }
+  let destination = if ($destination | str starts-with "-") { "." } else { $destination }
   let destination = $destination | path expand
   let standard_source = host-data-dir | path join $machine_name "qemu" | path expand
   let source = if $source != null { $source | path expand } else { $standard_source }
@@ -87,7 +92,7 @@ def main [
     let directory = $locks | first
     $env.IDR_MK_IMAGES_INTERNAL_LOCKS_JSON = ($held | append $directory | to json -r)
     let arguments = (["--build-memory" ($build_memory | into string) "--jobs" ($jobs | into string) "--type" $type "--source" $source]
-      ++ (if $force { ["--force"] } else { [] }) ++ [$machine_name $destination])
+      ++ (if $force { ["--force"] } else { [] }) ++ [$machine_name $destination] ++ $qemu_args)
     try {
       (run-external "flock" "--close" "--nonblock" "--conflict-exit-code" "75"
         ($directory | path join ".idr-qemu.lock")
@@ -102,7 +107,8 @@ def main [
     exit 0
   }
 
-  let metadata = nix --offline eval $"($env.PRJ_ROOT)#nixosConfigurations.\"($machine_name)\".config.system.build.idr.meta.disko" --json | from json
+  let image = nix --offline eval $"($env.PRJ_ROOT)#idrDiskoImagesInfo.\"($machine_name)\"" --json | from json
+  let metadata = $image.metadata
   let disks = $metadata.disks | values
   let names = $disks | get imageName
   let internal = "IDR_MK_IMAGES_INTERNAL_IMAGE_NAMES_JSON" in $env
@@ -120,7 +126,7 @@ def main [
       {path: $entry.path, key: $entry.key, encrypted: (open --raw $entry.sopsFile | hash sha256)}
     }
   }
-  let builder = nix --offline eval --raw $"($env.PRJ_ROOT)#idrDiskoImagesScript.\"($machine_name)\".drvPath" | str trim
+  let builder = $image.builder
   let identity = {
     builder: $builder
     disks: $metadata.disks
@@ -156,7 +162,7 @@ def main [
       chmod 0700 $staging
       with-disko-files $metadata {|disko_files|
         let image_builder = (do --capture-errors {
-          nix --offline -L build --no-link --print-out-paths $"($env.PRJ_ROOT)#idrDiskoImagesScript.\"($machine_name)\""
+          nix --offline -L build --no-link --print-out-paths $"($builder)^out"
         } | str trim)
         let nix_build_cores = if ("NIX_BUILD_CORES" in $env) and (not ($env.NIX_BUILD_CORES | is-empty)) {
           $env.NIX_BUILD_CORES
@@ -168,6 +174,7 @@ def main [
         with-env {
           enableParallelBuilding: "1"
           NIX_BUILD_CORES: $nix_build_cores
+          IDR_IMAGE_SETUP_JOBS: ($jobs | into string)
         } {
           if "IDR_IMAGE_BUILD_VM" in $env {
             let files_dir = $staging | path join ".idr-files"
@@ -189,6 +196,7 @@ def main [
                   "--closure" $image_builder
                   "--"
                   "env" "enableParallelBuilding=1" $"NIX_BUILD_CORES=($nix_build_cores)"
+                  $"IDR_IMAGE_SETUP_JOBS=($jobs)"
                   $image_builder "--build-memory" $build_memory ...$file_args
                 )
               }
@@ -220,12 +228,11 @@ def main [
     }
 
     print --stderr $"idr-mk-images: (if $generated { 'using generated' } else { 'reusing' }) ($input.format) images from ($input.directory)"
-    if $input.directory != $destination or $input.format != $type {
+    if $input.directory != $destination or $input.format != $type or ($qemu_args | is-not-empty) {
       # Invalidate before replacing any member. A failure must not certify a
       # mixture of an earlier generation and newly converted images.
       rm -f (receipt-path $destination $machine_name $type)
       let opts = match $type {
-        "qcow2" => ["-c" "-o" "compression_type=zstd"]
         "vmdk" => ["-c" "-o" "subformat=streamOptimized"]
         _ => []
       }
@@ -243,7 +250,7 @@ def main [
           let temporary = $destination | path join $".idr-convert-(random chars).partial"
           try {
             do --capture-errors {
-              (qemu-img convert -f $input.format -O $type ...$opts
+              (qemu-img convert -f $input.format -O $type ...$opts ...$qemu_args
                 ($input.directory | path join $"($disk.imageName).($input.format)") $temporary)
             }
             {disk: $disk, temporary: $temporary, failure: null}

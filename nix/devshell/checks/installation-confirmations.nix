@@ -15,6 +15,7 @@ top: {lib, ...}: {
           (lib.modules.importApply ./local-vm-fixture.nix {inherit top project system;})
         ];
 
+        idr.test.direnv.offline = true;
         name = "installation-confirmations";
 
         testScript = ''
@@ -32,8 +33,9 @@ top: {lib, ...}: {
               "ip -6 route show dev idr0 exact ${networkPrefix}::/48 | grep -q ."
           )
 
-          # The checkout is unchanged throughout this refusal flow. Keep its
-          # real CLI commands, SSH inspections, and readiness polling in one shell.
+          machine.succeed("cd /root/project && direnv allow")
+          shell = "cd /root/project && direnv exec . "
+
           disks = json.loads(machine.succeed(
               "cd /root/project && nix --offline eval --json "
               ".#nixosConfigurations.test-machine.config.disko.devices.disk "
@@ -59,97 +61,72 @@ top: {lib, ...}: {
           """)
           remote_fingerprint = "bash -o pipefail -ec " + shlex.quote(fingerprint)
           inspect = "timeout --kill-after=10s 120s ssh -n vm-test-machine " + shlex.quote(remote_fingerprint)
-          readiness = r"""
-              until idr process get vm-test-machine -o json | jq -e 'length == 1 and .[0].is_running and .[0].is_ready == "Ready"'; do
-                  sleep 1
-              done
-          """
-          stopped = "while idr process get vm-test-machine -o json; do sleep 1; done"
-          commands = rf"""
-              set -o pipefail
-              phase() {{
-                  printf 'installation phase: %s elapsed=%ss %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$SECONDS" "$*" >&2 || true
-              }}
-              phase shell-entry
-              cleanup() {{
-                  local status=$?
-                  trap - EXIT
-                  phase cleanup-begin
-                  if test "$status" -ne 0; then
-                      timeout --kill-after=10s 120s idr process logs --tail 1000 vm-test-machine || true
-                  fi
-                  timeout --kill-after=10s 120s idr down || status=1
-                  timeout --kill-after=10s 60s bash -ec {shlex.quote(stopped)} || status=1
-                  phase cleanup-finished
-                  exit "$status"
-              }}
-              phase daemon-start
-              echo 'start the installed machine with data to preserve'
-              timeout --kill-after=10s 600s idr -D
-              trap cleanup EXIT
-              phase daemon-started
-              phase vm-start
-              timeout --kill-after=10s 120s idr process start vm-test-machine
-              phase vm-started
-              timeout --kill-after=10s 900s bash -o pipefail -ec {shlex.quote(readiness)}
-              phase vm-ready
-              timeout --kill-after=10s 120s idr process logs --tail 2000 vm-test-machine >&2 || true
-              timeout --kill-after=10s 120s ssh -n vm-test-machine 'printf "keep this persisted data\n" > /persist/installation-test && sync'
+          readiness = (
+              "idr process get vm-test-machine -o json | "
+              "jq -e 'length == 1 and .[0].is_running and .[0].is_ready == \"Ready\"'"
+          )
 
-              phase fingerprint-before
-              before=$({inspect})
-              phase fingerprint-captured
-              disks=({quoted_disks})
-              refuse() {{
-                  local expected="$1" status
-                  shift
-                  phase "refusal-begin $*"
-                  if output=$(timeout --kill-after=10s 300s idr-anywhere vm-test-machine "$@" 2>&1); then
-                      printf '%s\n' "$output"
-                      return 1
-                  else
-                      status=$?
-                  fi
-                  phase "refusal-returned $*"
-                  if test "$status" -eq 124 || test "$status" -eq 137; then
-                      printf 'installation refusal timed out (status %s)\n' "$status" >&2
-                      printf '%s\n' "$output" >&2
-                      return 1
-                  fi
-                  printf '%s\n' "$output"
-                  grep -F -- "$expected" <<< "$output"
-              }}
-              echo 'noninteractive installation refuses all missing confirmations'
-              for options in '-n' ""; do
-                  if test -n "$options"; then
-                      refuse 'Missing confirmations: WIPE_ALL_DISKS,WIPE_NIXOS' "$options"
-                  else
-                      refuse 'Missing confirmations: WIPE_ALL_DISKS,WIPE_NIXOS'
-                  fi
-                  grep -F 'Disks currently in use by nixos:' <<< "$output"
-                  for disk in "''${{disks[@]}}"; do
-                      grep -F -- "$disk" <<< "$output"
-                  done
-                  phase fingerprint-after-refusal
-                  after=$({inspect})
-                  test "$after" = "$before"
-                  phase fingerprint-unchanged
-              done
-
-              echo 'allowing a wipe still refuses to overwrite a running NixOS system'
-              refuse 'Missing confirmations: WIPE_NIXOS' --allow WIPE_ALL_DISKS -n
-              phase fingerprint-after-refusal
-              after=$({inspect})
-              test "$after" = "$before"
-              phase fingerprint-unchanged
-              hostname=$(timeout --kill-after=10s 120s ssh -n vm-test-machine hostname)
-              test "$hostname" = test-machine
-          """
-          with subtest("installation confirmations preserve the running machine"):
-              machine.succeed(
-                  "cd /root/project && nix --offline develop -c bash -ec " + shlex.quote(textwrap.dedent(commands)),
-                  timeout=1800,
+          def refuse(expected, options):
+              status, output = machine.execute(
+                  shell + "bash -c " + shlex.quote(
+                      "timeout --kill-after=10s 300s idr-anywhere vm-test-machine " + options + " 2>&1"
+                  ), timeout=330,
               )
+              assert 0 < status < 124, (status, output)
+              assert expected in output, output
+              assert machine.succeed(shell + inspect, timeout=150) == before, output
+              return output
+
+          daemon_started = False
+          try:
+              with subtest("start the installed machine with data to preserve"):
+                  machine.succeed(shell + "timeout --kill-after=10s 600s idr -D", timeout=630)
+                  daemon_started = True
+                  machine.succeed(shell + "timeout --kill-after=10s 120s idr process start vm-test-machine", timeout=150)
+                  machine.wait_until_succeeds(
+                      shell + "bash -o pipefail -c " + shlex.quote(readiness), timeout=900,
+                  )
+                  print(machine.execute(
+                      shell + "timeout --kill-after=10s 120s idr process logs --tail 2000 vm-test-machine",
+                      timeout=150,
+                  ))
+                  machine.succeed(
+                      shell + "timeout --kill-after=10s 120s ssh -n vm-test-machine "
+                      + shlex.quote('printf "keep this persisted data\\n" > /persist/installation-test && sync'),
+                      timeout=150,
+                  )
+                  before = machine.succeed(shell + inspect, timeout=150)
+
+              with subtest("noninteractive installation refuses all missing confirmations"):
+                  for options in ["-n", ""]:
+                      output = refuse("Missing confirmations: WIPE_ALL_DISKS,WIPE_NIXOS", options)
+                      assert "Disks currently in use by nixos:" in output, output
+                      for disk in disks:
+                          assert disk in output, output
+
+              with subtest("allowing a wipe still refuses to overwrite a running NixOS system"):
+                  refuse("Missing confirmations: WIPE_NIXOS", "--allow WIPE_ALL_DISKS -n")
+                  assert machine.succeed(
+                      shell + "timeout --kill-after=10s 120s ssh -n vm-test-machine hostname", timeout=150,
+                  ).strip() == "test-machine"
+          except Exception:
+              if daemon_started:
+                  print(machine.execute(
+                      shell + "timeout --kill-after=10s 120s idr process logs --tail 1000 vm-test-machine",
+                      timeout=150,
+                  ))
+              raise
+          finally:
+              if daemon_started:
+                  try:
+                      machine.succeed(shell + "timeout --kill-after=10s 120s idr down", timeout=150)
+                  finally:
+                      machine.wait_until_succeeds(
+                          shell + "bash -c " + shlex.quote(
+                              "idr process get vm-test-machine -o json; status=$?; "
+                              'test "$status" -gt 0 && test "$status" -lt 124'
+                          ), timeout=60,
+                      )
         '';
       });
     };

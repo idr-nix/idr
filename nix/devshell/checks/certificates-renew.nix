@@ -18,17 +18,17 @@ top: {lib, ...}: {
 
         with subtest("issue a certificate with a custom persistent Lego directory"):
             prepare_certificates("${./fixtures/certificates-role.nix}")
-            update = 'LEGO_PATH="$PWD/.data/custom-acme" nix develop -c idr-update-certs tls-first'
+            update = 'direnv exec . env LEGO_PATH="$PWD/.data/custom-acme" idr-update-certs tls-first'
             operator(update)
-            original = decrypt("nix/role/tls/certs.enc.yaml")
             operator("test ! -e .data/lego")
-            operator("find .data/custom-acme/accounts -type f -exec sha256sum {} + | sort > /tmp/account-before.sha256")
+            operator("bash -o pipefail -c " + shlex.quote("find .data/custom-acme/accounts -type f -exec sha256sum {} + | sort > /tmp/account-before.sha256"))
+            original = decrypt("nix/role/tls/certs.enc.yaml")
 
         def set_issue_age(days):
             # Backdate only synthetic certificate metadata, leaving the system clock alone.
             timestamp = operator("date -u -d '" + str(days) + " days ago' --iso-8601=seconds").strip()
             operator(
-                "nix develop -c sops set nix/role/tls/certs.enc.yaml "
+                "direnv exec . sops set nix/role/tls/certs.enc.yaml "
                 + shlex.quote('["tls-first_issue_date_unencrypted"]') + " "
                 + shlex.quote(json.dumps(timestamp))
             )
@@ -45,19 +45,15 @@ top: {lib, ...}: {
             renewed = decrypt("nix/role/tls/certs.enc.yaml")
             assert renewed["tls-first_cert"] != original["tls-first_cert"]
             assert renewed["application_token"] == original["application_token"]
+            # Read-only checks must not reload startup metadata after renewal.
             operator("sha256sum --check /tmp/account-before.sha256")
             assert operator("find .data/custom-acme/accounts -name account.json | wc -l").strip() == "1"
             operator("git diff --exit-code -- nix/role/tls/certs.enc.yaml")
 
         with subtest("a repeated scheduled update does not rewrite the renewed secrets"):
-            operator(
-                'LEGO_PATH="$PWD/.data/custom-acme" nix develop -c bash -euo pipefail '
-                "<<'COMMANDS'\n"
-                "sha256sum nix/role/tls/certs.enc.yaml > /tmp/renewed-cert.sha256\n"
-                "idr-update-certs tls-first\n"
-                "sha256sum --check /tmp/renewed-cert.sha256\n"
-                "COMMANDS"
-            )
+            operator("direnv exec . sha256sum nix/role/tls/certs.enc.yaml > /tmp/renewed-cert.sha256")
+            operator(update)
+            operator("sha256sum --check /tmp/renewed-cert.sha256")
       '';
     };
   };

@@ -24,6 +24,7 @@ top: {lib, ...}: {
   in {
     checks = {
       backup-replication = pkgs.testers.runNixOSTest {
+        imports = [top.self.modules.nixosTest.disk-storage];
         name = "backup-replication";
         node.pkgsReadOnly = false;
         globalTimeout = 15 * 60;

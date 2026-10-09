@@ -10,7 +10,7 @@ top: {lib, ...}: {
       inherit (pkgs.stdenv.hostPlatform) isLinux;
       inherit (config.node.pkgs.stdenv.hostPlatform) system;
     in {
-      imports = with top.self.modules.nixosTest; [nix nix-store operator];
+      imports = with top.self.modules.nixosTest; [base operator];
 
       name = "mk-machine-system";
       globalTimeout = 15 * 60;
@@ -60,9 +60,10 @@ top: {lib, ...}: {
 
         start_all()
         machine.wait_for_unit("idr-project-fixture.service")
+        operator("direnv allow")
 
         with subtest("create the documented non-default architecture with -s"):
-            operator("nix develop -c idr-mk-machine -s aarch64-linux arm-machine </dev/null")
+            operator("direnv exec . idr-mk-machine -s aarch64-linux arm-machine </dev/null")
             operator(
                 "git ls-files --error-unmatch nix/machine/arm-machine/flake-module.nix "
                 "nix/machine/arm-machine/configuration.nix nix/machine/arm-machine/hardware-specific.nix "
@@ -71,7 +72,7 @@ top: {lib, ...}: {
 
         with subtest("the generated NixOS configuration targets aarch64-linux"):
             system = operator(
-                "nix eval --raw .#nixosConfigurations.arm-machine.pkgs.stdenv.hostPlatform.system"
+                "direnv exec . nix eval --raw .#nixosConfigurations.arm-machine.pkgs.stdenv.hostPlatform.system"
             ).strip()
             assert system == "aarch64-linux", system
       '';

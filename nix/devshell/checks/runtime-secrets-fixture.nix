@@ -2,6 +2,8 @@
   top,
   useVM,
 }: {lib, ...}: {
+  imports = [top.self.modules.nixosTest.disk-storage];
+
   globalTimeout = 10 * 60;
 
   defaults = {
@@ -22,9 +24,9 @@
     sops.useSystemdActivation = true;
     idr.secrets-source.api-token = {
       sopsFile = ./fixtures/runtime-secrets/initial.enc.json;
+      format = "json";
       key = "api_token";
     };
-    sops.secrets.api-token.format = "json";
 
     users.users.my-app = {
       isSystemUser = true;

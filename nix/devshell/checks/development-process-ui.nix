@@ -19,12 +19,12 @@ top: {lib, ...}: {
         inherit (pkgs.stdenv.hostPlatform) isLinux;
         inherit (config.node.pkgs.stdenv.hostPlatform) system;
       in {
-        imports = with top.self.modules.nixosTest; [nix nix-store operator];
+        imports = with top.self.modules.nixosTest; [base operator];
 
         name = "development-process-ui-${mode}";
         globalTimeout = 20 * 60;
 
-        idr.test.storePaths = [top.self.packages.${system}.default config.node.pkgs.python3];
+        idr.test.storePaths = [top.self.packages.${system}.default];
 
         defaults = {pkgs, ...}: {
           environment.systemPackages = [pkgs.curl (pkgs.python3.withPackages (ps: [ps.pexpect]))];
@@ -80,7 +80,7 @@ top: {lib, ...}: {
             import pexpect
 
             with pexpect.spawn(
-                "nix", ["develop", "-c", "idr"] + {arguments!r},
+                "idr", {arguments!r},
                 env=dict(os.environ, TERM="xterm-256color"),
                 encoding="utf-8", dimensions=(40, 160), timeout=120,
             ) as terminal:
@@ -98,9 +98,11 @@ top: {lib, ...}: {
                 terminal.expect(pexpect.EOF, timeout=60)
                 terminal.close()
                 assert terminal.exitstatus == 0, (terminal.exitstatus, terminal.signalstatus)
+
             """
-                machine.succeed(
-                    "su - operator -c " + shlex.quote("cd project && python -")
+                command = "direnv exec . /run/current-system/sw/bin/python -"
+                return machine.succeed(
+                    "su - operator -c " + shlex.quote("cd project && " + command)
                     + " <<'PY'\n" + script + "\nPY",
                     timeout=900,
                 )
@@ -108,6 +110,7 @@ top: {lib, ...}: {
             start_all()
             machine.wait_for_unit("idr-project-fixture.service")
             operator("git add nix/local-docs/flake-module.nix")
+            operator("direnv allow")
 
           ''
           + lib.optionalString (mode == "foreground") ''
@@ -119,26 +122,26 @@ top: {lib, ...}: {
                     project_stopped = True
             finally:
                 if not project_stopped:
-                    operator("nix develop -c idr down || true")
+                    operator("direnv exec . idr down || true")
                     machine.wait_for_closed_port(8080, addr="127.0.0.1", timeout=60)
           ''
           + lib.optionalString (mode == "attach") ''
             daemon_started = False
             try:
                 with subtest("attach to a background project and detach without stopping it"):
-                    operator("nix develop -c idr -D")
+                    operator("direnv exec . idr -D")
                     daemon_started = True
                     machine.wait_for_open_port(8080, addr="127.0.0.1", timeout=120)
-                    before = json.loads(operator("nix develop -c idr process get docs-server -o json"))[0]
+                    before = json.loads(operator("direnv exec . idr process get docs-server -o json"))[0]
                     interact(["attach"], "Detach from the remote project?")
-                    after = json.loads(operator("nix develop -c idr process get docs-server -o json"))[0]
+                    after = json.loads(operator("direnv exec . idr process get docs-server -o json"))[0]
                     assert after["is_running"] and after["pid"] == before["pid"], (before, after)
                     assert machine.succeed(
                         "curl --fail --silent http://127.0.0.1:8080/"
                     ) == "Project documentation\n"
             finally:
                 if daemon_started:
-                    operator("nix develop -c idr down")
+                    operator("direnv exec . idr down")
                     machine.wait_for_closed_port(8080, addr="127.0.0.1", timeout=60)
           '';
       });

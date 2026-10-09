@@ -3,6 +3,7 @@ top: {lib, ...}: {
     addresses = lib.genAttrs ["first" "second"] (name: top.idr-lib.mkLocalIPv6 "docs-port-${name}");
   in {
     checks.service-loopback-addresses = pkgs.testers.runNixOSTest {
+      imports = [top.self.modules.nixosTest.disk-storage];
       name = "service-loopback-addresses";
 
       nodes.machine = {pkgs, ...}: {

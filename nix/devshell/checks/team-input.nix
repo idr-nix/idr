@@ -39,7 +39,7 @@ top: {lib, ...}: {
         }
       '';
     in {
-      imports = with top.self.modules.nixosTest; [nix nix-store operator ssh-git];
+      imports = with top.self.modules.nixosTest; [base operator ssh-git];
 
       name = "team-input";
       globalTimeout = 15 * 60;

@@ -10,7 +10,7 @@ top: {lib, ...}: {
       inherit (pkgs.stdenv.hostPlatform) isLinux;
       inherit (config.node.pkgs.stdenv.hostPlatform) system;
     in {
-      imports = with top.self.modules.nixosTest; [nix nix-store operator];
+      imports = with top.self.modules.nixosTest; [base operator];
 
       name = "documentation-open";
       globalTimeout = 20 * 60;

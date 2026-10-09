@@ -21,7 +21,7 @@ top: {lib, ...}: {
       inherit (pkgs.stdenv.hostPlatform) isLinux;
       inherit (config.node.pkgs.stdenv.hostPlatform) system;
     in {
-      imports = with top.self.modules.nixosTest; [nix nix-store operator];
+      imports = with top.self.modules.nixosTest; [base operator];
 
       name = "documentation-regenerate";
       globalTimeout = 20 * 60;
@@ -74,9 +74,10 @@ top: {lib, ...}: {
 
         start_all()
         machine.wait_for_unit("idr-project-fixture.service")
+        operator("direnv allow")
 
         with subtest("generate the reference for an exported module"):
-            operator("nix develop -c bash -euc 'rm -rf docs/generated; idr-generate-docs'")
+            operator("direnv exec . bash -euc 'rm -rf docs/generated; idr-generate-docs'")
             reference = operator("cat docs/generated/nixos-options.md").replace(r"\.", ".")
             assert "services.documented.message" in reference, "expected option or description is missing"
             assert "Initial greeting for the documented service." in reference, "expected option or description is missing"
@@ -86,9 +87,9 @@ top: {lib, ...}: {
                 "sed -i 's/Initial greeting for the documented service./Greeting displayed when the service starts./' "
                 "nix/documentation-example/flake-module.nix"
             )
-            # Shell entry refreshes documentation too. Remove its output to exercise
+            # The Nix edit reloads direnv and refreshes documentation too. Remove its output to exercise
             # the documented manual command independently of the startup hook.
-            operator("nix develop -c bash -euc 'rm -rf docs/generated; idr-generate-docs'")
+            operator("direnv exec . bash -euc 'rm -rf docs/generated; idr-generate-docs'")
             reference = operator("cat docs/generated/nixos-options.md").replace(r"\.", ".")
             assert "services.documented.message" in reference, "expected option or description is missing"
             assert "Greeting displayed when the service starts." in reference, "expected option or description is missing"

@@ -32,7 +32,7 @@ top: {lib, ...}: {
       machineId = top.self.nixosConfigurations."example-${system}".config.idr.preset.base.id;
     in {
       imports =
-        (with top.self.modules.nixosTest; [nix nix-store operator ssh-git])
+        (with top.self.modules.nixosTest; [base operator ssh-git])
         ++ [
           (lib.modules.importApply ./fixtures/operator-project.nix {inherit project machineId;})
         ];
@@ -67,11 +67,13 @@ top: {lib, ...}: {
         start_all()
         machine.wait_for_unit("sshd.service")
         operator("nix flake update team")
+        operator("direnv allow")
 
         with subtest("edit an interval through SOPS and rotate only the expired field"):
-            # Keep edits and observations in one shell: entering another shell also updates metadata.
+            # These edits and snapshots form one interval operation: reloading startup between them
+            # would rotate the zero-interval key before the explicit command under test.
             operator(
-                "nix develop -c bash -euo pipefail <<'COMMANDS'\n"
+                "direnv exec . bash -euo pipefail <<'COMMANDS'\n"
                 # The archived example's timestamps can already be older than its default interval.
                 # Removing one annotation also checks the unconfigured default for a newly written one.
                 "sops unset nix/machine/test-machine/secrets.enc.json '[\"initrd_ssh_host_ed25519_key@_unencrypted\"]'\n"

@@ -7,6 +7,7 @@ top: {lib, ...}: {
     project = config.checks.mk-project;
     mkCheck = {
       name,
+      corrupt ? false,
       extraSetup ? "",
       afterSetup ? "",
       testScript,
@@ -15,9 +16,13 @@ top: {lib, ...}: {
         inherit (pkgs.stdenv.hostPlatform) isLinux;
         inherit (config.node.pkgs.stdenv.hostPlatform) system;
         machineId = top.self.nixosConfigurations."example-${system}".config.idr.preset.base.id;
+        shell =
+          if corrupt
+          then "nix develop -c"
+          else "direnv exec .";
       in {
         imports =
-          (with top.self.modules.nixosTest; [nix nix-store operator ssh-git])
+          (with top.self.modules.nixosTest; [base operator ssh-git])
           ++ [
             (lib.modules.importApply ./fixtures/operator-project.nix {
               inherit project machineId;
@@ -62,9 +67,11 @@ top: {lib, ...}: {
                     timeout=900,
                 )
 
+            # Cached direnv entries rerun startup and retry pending secret updates.
+            # Corruption separately tests nix develop's successful entry despite hook errors.
             def enter(name, command="true"):
                 log = "/tmp/" + name + ".log"
-                operator("nix develop -c bash -euc " + shlex.quote(command) + " > " + log + " 2>&1")
+                operator("${shell} bash -euc " + shlex.quote(command) + " > " + log + " 2>&1")
                 output = operator("cat " + log)
                 for message in ["Failed to get the data key", "Could not decrypt", "Error: nu::", "failed to load age identities"]:
                     assert message not in output, (name, message)
@@ -72,6 +79,9 @@ top: {lib, ...}: {
             start_all()
             machine.wait_for_unit("sshd.service")
             operator("nix flake update team")
+            ${lib.optionalString (!corrupt) ''
+              operator("direnv allow")
+            ''}
           ''
           + testScript;
       });
@@ -107,6 +117,12 @@ top: {lib, ...}: {
           }
           EOF
         '';
+        # Leave plaintext candidates untracked after the fixture stages encrypted files.
+        afterSetup = ''
+          printf '{}' > project/nix/machine/restricted/placeholder.enc.json
+          printf '%s' '{"token":"synthetic plaintext"}' > project/nix/machine/restricted/plaintext.enc.json
+          printf 'token: synthetic plaintext\n' > project/nix/role/restricted/plaintext.enc.yaml
+        '';
         testScript = ''
           import json
 
@@ -117,12 +133,24 @@ top: {lib, ...}: {
           ]
           restricted = shlex.join(restricted_paths)
           machine_secret = "nix/machine/test-machine/secrets.enc.json"
+          plaintext = [
+              "nix/machine/restricted/placeholder.enc.json",
+              "nix/machine/restricted/plaintext.enc.json",
+              "nix/role/restricted/plaintext.enc.yaml",
+          ]
 
           def pending(queue):
               return json.loads(operator("if test -e .data/" + queue + "; then cat .data/" + queue + "; else echo '[]'; fi"))
 
+          def untouched_plaintext():
+              operator("sha256sum --check /tmp/plaintext.sha256")
+              assert not operator("git ls-files -- " + shlex.join(plaintext)).strip(), "Plaintext was auto-staged"
+              for queue in ["pending-sops-updatekeys.json", "pending-rotation-files.json"]:
+                  assert not set(plaintext).intersection(pending(queue)), (queue, "Plaintext was queued")
+
           with subtest("enter a project with access to only some encrypted files"):
               operator("sha256sum " + restricted + " > /tmp/restricted.sha256")
+              operator("sha256sum " + shlex.join(plaintext) + " > /tmp/plaintext.sha256")
               enter("partial-access", "sops decrypt --output /dev/null " + machine_secret)
               operator("sha256sum --check /tmp/restricted.sha256")
               assert set(restricted_paths).issubset(pending("pending-sops-updatekeys.json"))
@@ -132,6 +160,9 @@ top: {lib, ...}: {
                   "jq -e --arg recipient \"$(cat ~/.config/idr/operator.age.pub)\" "
                   "'any(.sops.age[]; .recipient == $recipient)' " + machine_secret
               )
+
+          with subtest("leave plaintext secret candidates unchanged on first entry"):
+              untouched_plaintext()
 
           with subtest("repeat shell entry quietly while explicit decryption still fails"):
               enter(
@@ -143,6 +174,9 @@ top: {lib, ...}: {
               operator("sha256sum --check /tmp/restricted.sha256")
               assert set(restricted_paths).issubset(pending("pending-sops-updatekeys.json"))
               assert set(restricted_paths[:2]).issubset(pending("pending-rotation-files.json"))
+
+          with subtest("leave plaintext secret candidates unchanged on repeated entry"):
+              untouched_plaintext()
 
           with subtest("retry skipped files after the missing identity becomes available"):
               operator("printf '\\nSOPS_AGE_KEY_FILE=/home/operator/.config/idr/restricted.age\\n' >> .env")
@@ -163,40 +197,9 @@ top: {lib, ...}: {
 
         '';
       };
-      devshell-plaintext-secrets = mkCheck {
-        name = "devshell-plaintext-secrets";
-        # Create candidates after the fixture stages its encrypted project files.
-        afterSetup = ''
-          mkdir -p project/nix/machine/restricted project/nix/role/restricted
-          printf '{}' > project/nix/machine/restricted/placeholder.enc.json
-          printf '%s' '{"token":"synthetic plaintext"}' > project/nix/machine/restricted/plaintext.enc.json
-          printf 'token: synthetic plaintext\n' > project/nix/role/restricted/plaintext.enc.yaml
-        '';
-        testScript = ''
-          import json
-
-          plaintext = [
-              "nix/machine/restricted/placeholder.enc.json",
-              "nix/machine/restricted/plaintext.enc.json",
-              "nix/role/restricted/plaintext.enc.yaml",
-          ]
-
-          def untouched_plaintext():
-              operator("sha256sum --check /tmp/plaintext.sha256")
-              assert not operator("git ls-files -- " + " ".join(plaintext)).strip(), "Plaintext was auto-staged"
-              for queue in ["pending-sops-updatekeys.json", "pending-rotation-files.json"]:
-                  pending = json.loads(operator("if test -e .data/" + queue + "; then cat .data/" + queue + "; else echo '[]'; fi"))
-                  assert not set(plaintext).intersection(pending), (queue, "Plaintext was queued")
-
-          with subtest("leave plaintext secret candidates unchanged"):
-              operator("sha256sum " + " ".join(plaintext) + " > /tmp/plaintext.sha256")
-              for name in ["plaintext-entry", "plaintext-repeat"]:
-                  enter(name)
-                  untouched_plaintext()
-        '';
-      };
       devshell-corrupt-secrets = mkCheck {
         name = "devshell-corrupt-secrets";
+        corrupt = true;
         testScript = ''
           machine_secret = "nix/machine/test-machine/secrets.enc.json"
 

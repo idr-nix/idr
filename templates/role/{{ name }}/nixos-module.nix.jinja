@@ -8,7 +8,10 @@ top: {
 in {
   key = toString ./nixos-module.nix;
 
-  options.idr.roles.${roleName}.enable = lib.mkEnableOption "the {{ name }} role";
+  options.idr.roles.${roleName} = {
+    enable = lib.mkEnableOption "the {{ name }} role";
+  };
 
-  config = lib.mkIf cfg.enable {};
+  config = lib.mkIf cfg.enable {
+  };
 }

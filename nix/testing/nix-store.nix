@@ -1,4 +1,4 @@
-_: {
+top: {
   config,
   hostPkgs,
   lib,
@@ -6,6 +6,8 @@ _: {
 }: let
   inherit (config.idr.test) storePaths;
 in {
+  imports = [top.self.modules.nixosTest.disk-storage];
+
   options.idr.test.storePaths = lib.mkOption {
     type = lib.types.listOf lib.types.package;
     default = [];
@@ -34,7 +36,6 @@ in {
 
     nodeDefaults.virtualisation = {
       writableStore = true;
-      writableStoreUseTmpfs = true;
       additionalPaths = storePaths;
       # The image restores case-sensitive names hidden by Darwin's Nix case hack.
       # A 9p mount exposes the renamed host paths directly to Linux guests.

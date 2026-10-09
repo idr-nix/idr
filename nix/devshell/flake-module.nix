@@ -27,16 +27,13 @@ top: {flake-parts-lib, ...}: {
     ./checks/mk-images-reuse.nix
     ./checks/local-vm-installation.nix
     ./checks/installation-confirmations.nix
-    ./checks/local-vm-start.nix
     ./checks/local-vm-workspaces.nix
     ./checks/local-vm-network-prefix.nix
     ./checks/local-vm-host-network.nix
     ./checks/shared-project-hosts.nix
-    ./checks/local-vm-deploy.nix
     ./checks/local-vm-deploy-modes.nix
     ./checks/local-vm-rollback.nix
     ./checks/local-vm-auto-rollback.nix
-    ./checks/local-vm-magic-rollback.nix
     ./checks/local-vm-remote-build.nix
     ./checks/local-vm-reboot.nix
     ./checks/copy-extra-files.nix
@@ -46,15 +43,11 @@ top: {flake-parts-lib, ...}: {
     ./checks/mk-role.nix
     ./checks/external-role-secrets.nix
     ./checks/mk-module.nix
-    ./checks/development-docs-server.nix
     ./checks/development-shell-tools.nix
     ./checks/devshell-partial-secret-access.nix
-    ./checks/documentation-build.nix
-    ./checks/development-shell-startup.nix
     ./checks/devshell-reload.nix
     ./checks/development-shell-startup-ordering.nix
     ./checks/development-process-controls.nix
-    ./checks/development-process-logs.nix
     ./checks/development-process-ui.nix
     ./checks/documentation-open.nix
     ./checks/runtime-secrets-files.nix
@@ -101,7 +94,8 @@ top: {flake-parts-lib, ...}: {
     ./checks/local-vm-runner-options.nix
     ./checks/local-vm-graphics.nix
     ./checks/local-vm-persistence.nix
-    ./checks/local-vm-image-rollback.nix
+    ./checks/local-vm-image-activation-rollback.nix
+    ./checks/local-vm-image-boot-rollback.nix
   ];
 
   flake.modules.devshell.idr = flake-parts-lib.importApply ./devshell.nix top;

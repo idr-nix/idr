@@ -41,11 +41,37 @@ in {
             type = lib.types.nullOr lib.types.path;
             default = null;
           };
+          format = lib.mkOption {
+            description = ''
+              Format of the SOPS file. When null, use sops-nix's configured format
+              (YAML by default); sops-nix does not infer it from the file extension.
+            '';
+            type = lib.types.nullOr (lib.types.enum ["yaml" "json" "binary" "dotenv" "ini"]);
+            default = null;
+          };
+          path = lib.mkOption {
+            description = ''
+              Custom runtime path for a SOPS secret. When null, use sops-nix's
+              default path. Read the resolved path from config.idr.secrets.<name>.path.
+            '';
+            type = lib.types.nullOr lib.types.str;
+            default = null;
+          };
+          restartUnits = lib.mkOption {
+            description = "Additional systemd units for sops-nix to restart when this SOPS secret changes.";
+            type = lib.types.listOf lib.types.str;
+            default = [];
+          };
+          reloadUnits = lib.mkOption {
+            description = "Additional systemd units for sops-nix to reload when this SOPS secret changes.";
+            type = lib.types.listOf lib.types.str;
+            default = [];
+          };
           exec = lib.mkOption {
             description = ''
-              Script to generate secret.
+              Shell code or an executable derivation to generate the secret.
             '';
-            type = lib.types.str;
+            type = lib.types.coercedTo lib.types.package toString lib.types.str;
             defaultText = "<script to generate key-value pair which can be used in systemd's EnvironmentFile>";
             default = ''
               ${pkgs.jq}/bin/jq -rn \
@@ -308,13 +334,16 @@ in {
 
       sops.secrets =
         lib.mapAttrs
-        (name: secret: {
-          inherit (secret) sopsFile key;
-          group = config.users.groups."keys_${name}".name;
-          mode = "0440";
-          reloadUnits = lib.optional (!config.sops.useSystemdActivation) "op-key-${name}-reload.target";
-          restartUnits = lib.optional (!config.sops.useSystemdActivation) "op-key-${name}-restart.target";
-        })
+        (name: secret:
+          {
+            inherit (secret) sopsFile key;
+            group = config.users.groups."keys_${name}".name;
+            mode = "0440";
+            reloadUnits = secret.reloadUnits ++ lib.optional (!config.sops.useSystemdActivation) "op-key-${name}-reload.target";
+            restartUnits = secret.restartUnits ++ lib.optional (!config.sops.useSystemdActivation) "op-key-${name}-restart.target";
+          }
+          // lib.optionalAttrs (secret.format != null) {inherit (secret) format;}
+          // lib.optionalAttrs (secret.path != null) {inherit (secret) path;})
         sopsSources;
 
       idr.secrets =

@@ -58,7 +58,7 @@ top: {lib, ...}: {
 
             def update_application():
                 operator("nix flake update team", "application")
-                operator("nix develop -c true", "application")
+                operator("direnv exec . true", "application")
                 publish("application", "Update role secret recipients")
                 operator("nix flake update application")
 
@@ -67,47 +67,47 @@ top: {lib, ...}: {
                     "nix eval --raw .#nixosConfigurations.test-machine.config.sops.secrets.api-token.sopsFile"
                 ).strip()
 
-            def save_host_identity(name):
-                operator(
-                    "nix develop -c bash -euo pipefail <<'COMMANDS'\n"
-                    "sops decrypt --extract '[\"ssh_host_ed25519_key\"]' "
-                    "nix/machine/test-machine/secrets.enc.json | ssh-to-age -private-key "
-                    "> ~/.config/idr/" + name + ".age\n"
-                    "COMMANDS"
-                )
-
-            def assert_host_access(name, allowed):
-                decrypt = (
-                    "env -u SOPS_AGE_KEY_CMD SOPS_AGE_KEY_FILE=$HOME/.config/idr/" + name + ".age "
-                    "sops decrypt --extract '[\"api_token\"]' " + shlex.quote(role_secret())
-                )
-                if allowed:
-                    command = "test \"$(" + decrypt + ")\" = 'public cross-repository test token'"
-                else:
-                    command = "if " + decrypt + " >/dev/null 2>&1; then exit 1; fi"
-                operator("nix develop -c bash -ec " + shlex.quote(command))
+            def assert_host_accesses(checks, save_identity=None):
+                if save_identity is not None:
+                    operator("direnv exec . bash -euo pipefail -c " + shlex.quote(
+                        "sops decrypt --extract '[\"ssh_host_ed25519_key\"]' "
+                        "nix/machine/test-machine/secrets.enc.json | ssh-to-age -private-key "
+                        "> ~/.config/idr/" + save_identity + ".age"
+                    ))
+                secret = shlex.quote(role_secret())
+                for name, allowed in checks:
+                    decrypt = (
+                        "direnv exec . env -u SOPS_AGE_KEY_CMD "
+                        "SOPS_AGE_KEY_FILE=\"$HOME\"/.config/idr/" + name + ".age "
+                        "sops decrypt --extract '[\"api_token\"]' " + secret
+                    )
+                    if allowed:
+                        assert operator(decrypt).strip() == "public cross-repository test token"
+                    else:
+                        failure = machine.fail("su - operator -c " + shlex.quote("cd project && " + decrypt + " 2>&1"), timeout=900)
+                        assert "Failed to get the data key" in failure, failure
 
             start_all()
             machine.wait_for_unit("sshd.service")
+            operator("direnv allow")
 
           ''
           + (
             if prepared
             then ''
               with subtest("restore the verified external role grant"):
+                  operator("direnv allow", "application")
                   public_key = json.loads(operator("cat nix/machine/test-machine/secrets.enc.json"))["ssh_host_ed25519_key_age_pub_unencrypted"]
-                  assert_host_access("old-host", True)
+                  assert_host_accesses([("old-host", True)])
               with subtest("update the shared machine entry after SSH host key rotation"):
-                  operator("nix develop -c idr-rotate-keys --force test-machine")
-                  save_host_identity("new-host")
-                  assert_host_access("new-host", False)
+                  operator("direnv exec . idr-rotate-keys --force test-machine")
+                  assert_host_accesses([("new-host", False)], save_identity="new-host")
                   rotated_key = json.loads(operator("cat nix/machine/test-machine/secrets.enc.json"))["ssh_host_ed25519_key_age_pub_unencrypted"]
                   assert rotated_key != public_key
                   operator("sed -i 's/" + public_key + "/" + rotated_key + "/' team.toml", "team-work")
                   publish("team-work", "Publish the rotated machine age recipient")
                   update_application()
-                  assert_host_access("new-host", True)
-                  assert_host_access("old-host", False)
+                  assert_host_accesses([("new-host", True), ("old-host", False)])
             ''
             else ''
               with subtest("create and publish a role in the separate application repository"):
@@ -117,9 +117,10 @@ top: {lib, ...}: {
                       "cp project/.env application/.env",
                       ".",
                   )
+                  operator("direnv allow", "application")
                   operator("nix flake update team")
                   operator("nix flake update team", "application")
-                  operator("nix develop -c idr-mk-role some-role </dev/null", "application")
+                  operator("direnv exec . idr-mk-role some-role </dev/null", "application")
                   role = "some-role-" + json.loads(operator("cat nix/role/some-role/meta.json", "application"))["id"]
                   operator(
                       "sed -i 's|groups = .*|groups = [\"host-test-machine-${machineId}\", \"role-" + role + "\"]|' team.toml",
@@ -127,12 +128,14 @@ top: {lib, ...}: {
                   )
                   publish("team-work", "Give the operator access to the application role")
                   operator("nix flake update team", "application")
-                  operator("nix develop -c sops nix/role/some-role/secrets.enc.json", "application")
+                  operator("direnv exec . sops nix/role/some-role/secrets.enc.json", "application")
+                  role_config = (
+                      r'/config = lib.mkIf cfg.enable {/a\    '
+                      'environment.etc.role-message.text = "external role enabled"; '
+                      'idr.secrets-source.api-token = { sopsFile = ./secrets.enc.json; key = "api_token"; format = "json"; };'
+                  )
                   operator(
-                      "sed -i 's|lib.mkIf cfg.enable {}|lib.mkIf cfg.enable { "
-                      "environment.etc.role-message.text = \"external role enabled\"; "
-                      "idr.secrets-source.api-token = { sopsFile = ./secrets.enc.json; key = \"api_token\"; }; "
-                      "sops.secrets.api-token.format = \"json\"; }|' nix/role/some-role/nixos-module.nix",
+                      "sed -i " + shlex.quote(role_config) + " nix/role/some-role/nixos-module.nix",
                       "application",
                   )
                   publish("application", "Export the application role and its encrypted secret")
@@ -153,8 +156,7 @@ top: {lib, ...}: {
                   )
                   assert json.loads(operator(enabled)) is True
                   assert operator("nix eval --raw .#nixosConfigurations.test-machine.config.environment.etc.role-message.text") == "external role enabled"
-                  save_host_identity("old-host")
-                  assert_host_access("old-host", False)
+                  assert_host_accesses([("old-host", False)], save_identity="old-host")
 
               with subtest("publish external machine membership and update both repository inputs"):
                   public_key = json.loads(operator("cat nix/machine/test-machine/secrets.enc.json"))["ssh_host_ed25519_key_age_pub_unencrypted"]
@@ -165,7 +167,7 @@ top: {lib, ...}: {
                   operator("printf %s " + shlex.quote(member) + " >> team.toml", "team-work")
                   publish("team-work", "Grant the external machine access to the role")
                   update_application()
-                  assert_host_access("old-host", True)
+                  assert_host_accesses([("old-host", True)])
 
               with subtest("export the verified repositories and synthetic identities"):
                   # Keep Git history and remote-tracking refs for subsequent pushes.

@@ -17,12 +17,12 @@ top: {lib, ...}: {
           age.sshKeyPaths = lib.mkForce ["/etc/ssh/test-container-host-key"];
           gnupg.sshKeyPaths = [];
           useSystemdActivation = true;
-          secrets.api-token.format = "json";
         };
         idr.secrets-source = {
           api-token = {
             sopsFile = ./fixtures/preset-container/initial.enc.json;
             key = "api_token";
+            format = "json";
           };
           auth-header = {
             secrets.TOKEN = config.idr.secrets.api-token;
@@ -81,15 +81,29 @@ top: {lib, ...}: {
 
         with subtest("inherit host SOPS sources and generated service environment inside the container"):
             initial_hash = hashlib.sha256(b"Authorization: Bearer container-first-value").hexdigest()
-            assert machine.succeed(container + "cat /run/my-app/header.sha256").strip() == initial_hash
-            assert machine.succeed(container + "sha256sum /run/idr-secrets/auth-header").split()[0] == initial_hash
-            assert machine.succeed("sha256sum /run/idr-secrets/auth-header").split()[0] == initial_hash
-            mount_options = machine.succeed(
-                container + "findmnt -n -o OPTIONS /etc/ssh/test-container-host-key"
-            ).strip().split(",")
-            assert "ro" in mount_options
-            leader = machine.succeed("machinectl show example -p Leader --value").strip()
-            application_pid = machine.succeed(container + "systemctl show my-app -p MainPID --value").strip()
+            (
+                application_hash,
+                container_header_hash,
+                mount_options,
+                application_pid,
+                host_header_hash,
+                leader,
+            ) = [line.strip() for line in machine.succeed("""
+                set -e
+                nixos-container run example -- sh -ec '
+                    cat /run/my-app/header.sha256
+                    echo
+                    sha256sum /run/idr-secrets/auth-header
+                    findmnt -n -o OPTIONS /etc/ssh/test-container-host-key
+                    systemctl show my-app -p MainPID --value
+                '
+                sha256sum /run/idr-secrets/auth-header
+                machinectl show example -p Leader --value
+            """).splitlines()]
+            assert application_hash == initial_hash
+            assert container_header_hash.split()[0] == initial_hash
+            assert host_header_hash.split()[0] == initial_hash
+            assert "ro" in mount_options.split(",")
             assert leader not in ["", "0"] and application_pid not in ["", "0"]
 
         with subtest("deploy a changed host secret without restarting the container"):
@@ -102,9 +116,16 @@ top: {lib, ...}: {
                 "test \"$(" + container + "cat /run/my-app/header.sha256)\" = " + updated_hash,
                 timeout=180,
             )
-            assert machine.succeed("sha256sum /run/idr-secrets/auth-header").split()[0] == updated_hash
-            assert machine.succeed("machinectl show example -p Leader --value").strip() == leader
-            updated_pid = machine.succeed(container + "systemctl show my-app -p MainPID --value").strip()
+            host_header_hash, updated_leader, updated_pid = [
+                line.strip() for line in machine.succeed("""
+                    set -e
+                    sha256sum /run/idr-secrets/auth-header
+                    machinectl show example -p Leader --value
+                    nixos-container run example -- systemctl show my-app -p MainPID --value
+                """).splitlines()
+            ]
+            assert host_header_hash.split()[0] == updated_hash
+            assert updated_leader == leader
             assert updated_pid not in ["", "0", application_pid]
       '';
     };

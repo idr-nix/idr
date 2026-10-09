@@ -10,7 +10,7 @@ top: {lib, ...}: {
       inherit (config.node.pkgs.stdenv.hostPlatform) system;
     in {
       imports =
-        (with top.self.modules.nixosTest; [nix nix-store operator])
+        (with top.self.modules.nixosTest; [base operator])
         ++ [
           (lib.modules.importApply ./fixtures/documentation-project.nix {
             inherit project;

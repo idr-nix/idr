@@ -15,7 +15,7 @@ in {
     }
     {
       name = "IDR_NIX_SEARCH_TV_CONFIG_PATH";
-      value = "${searchConfig}";
+      value = searchConfig;
     }
   ];
   commands = [

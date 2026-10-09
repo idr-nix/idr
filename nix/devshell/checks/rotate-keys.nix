@@ -42,7 +42,7 @@ top: {lib, ...}: {
       '';
     in {
       imports =
-        (with top.self.modules.nixosTest; [nix nix-store operator ssh-git])
+        (with top.self.modules.nixosTest; [base operator ssh-git])
         ++ [
           (lib.modules.importApply ./fixtures/operator-project.nix {
             inherit project machineId;
@@ -85,7 +85,8 @@ top: {lib, ...}: {
 
         with subtest("enroll an operator and enable a role on the machine"):
             operator("nix flake update team")
-            operator("nix develop -c idr-mk-role some-role </dev/null")
+            operator("direnv allow")
+            operator("direnv exec . idr-mk-role some-role </dev/null")
             role = "some-role-" + json.loads(operator("cat nix/role/some-role/meta.json"))["id"]
             operator(
                 "sed -i '/networking.hostName =/a\\      idr.roles.\"" + role
@@ -93,27 +94,43 @@ top: {lib, ...}: {
             )
             operator("test ! -e .data/machine-host-key/test-machine")
 
-        with subtest("rotate all managed keys and verify access before reentering the shell"):
-            operator(
-                "nix develop -c bash -euo pipefail <<'COMMANDS'\n"
-                "sops nix/machine/test-machine/secrets.enc.json\n"
-                "sops nix/role/some-role/secrets.enc.json\n"
-                "git add nix/machine/test-machine/secrets.enc.json nix/role/some-role/secrets.enc.json\n"
+        def check_host_access(identity):
+            paths = operator("printf '%s\\n' nix/machine/test-machine/*.enc.json nix/role/some-role/secrets.enc.json").splitlines()
+            for path in paths:
+                command = (
+                    "direnv exec . env -u SOPS_AGE_KEY_CMD "
+                    "SOPS_AGE_KEY_FILE=\"$HOME\"/.config/idr/" + identity + ".age "
+                    "sops decrypt --output /dev/null " + shlex.quote(path)
+                )
+                operator(command)
+
+        def save_host_identity(identity):
+            operator("direnv exec . bash -euo pipefail -c " + shlex.quote(
                 "sops decrypt --extract '[\"ssh_host_ed25519_key\"]' "
-                "nix/machine/test-machine/secrets.enc.json | ssh-to-age -private-key > ~/.config/idr/old-host.age\n"
-                "for file in nix/machine/test-machine/*.enc.json nix/role/some-role/secrets.enc.json; do\n"
-                "  env -u SOPS_AGE_KEY_CMD SOPS_AGE_KEY_FILE=$HOME/.config/idr/old-host.age "
-                "sops decrypt --output /dev/null \"$file\"\n"
-                "done\n"
+                "nix/machine/test-machine/secrets.enc.json | ssh-to-age -private-key "
+                "> ~/.config/idr/" + identity + ".age"
+            ))
+
+        with subtest("prepare application credentials and prove the original host access"):
+            operator("direnv exec . sops nix/machine/test-machine/secrets.enc.json")
+            operator("direnv exec . sops nix/role/some-role/secrets.enc.json")
+            operator("git add nix/machine/test-machine/secrets.enc.json nix/role/some-role/secrets.enc.json")
+            save_host_identity("old-host")
+            check_host_access("old-host")
+
+        with subtest("rotate all managed keys and verify access and idempotence before reentry"):
+            # Capture both sides of the actual rotation before startup can update metadata.
+            operator(
+                "direnv exec . bash -euo pipefail <<'COMMANDS'\n"
                 "python ${snapshot} > /tmp/rotation-before.json\n"
                 "idr-rotate-keys --force test-machine\n"
                 "python ${snapshot} > /tmp/rotation-after.json\n"
                 "sops decrypt --extract '[\"ssh_host_ed25519_key\"]' "
                 "nix/machine/test-machine/secrets.enc.json | ssh-to-age -private-key > ~/.config/idr/new-host.age\n"
                 "for file in nix/machine/test-machine/*.enc.json nix/role/some-role/secrets.enc.json; do\n"
-                "  env -u SOPS_AGE_KEY_CMD SOPS_AGE_KEY_FILE=$HOME/.config/idr/new-host.age "
+                "  env -u SOPS_AGE_KEY_CMD SOPS_AGE_KEY_FILE=\"$HOME\"/.config/idr/new-host.age "
                 "sops decrypt --output /dev/null \"$file\"\n"
-                "  if env -u SOPS_AGE_KEY_CMD SOPS_AGE_KEY_FILE=$HOME/.config/idr/old-host.age "
+                "  if env -u SOPS_AGE_KEY_CMD SOPS_AGE_KEY_FILE=\"$HOME\"/.config/idr/old-host.age "
                 "sops decrypt --output /dev/null \"$file\" >/dev/null 2>&1; then\n"
                 "    echo \"Old host identity still decrypts $file\" >&2; exit 1\n"
                 "  fi\n"
@@ -123,6 +140,9 @@ top: {lib, ...}: {
                 "sha256sum --check /tmp/rotated.sha256\n"
                 "COMMANDS"
             )
+
+        with subtest("reenter the devshell without rewriting rotated secrets"):
+            operator("direnv exec . sha256sum --check /tmp/rotated.sha256")
 
         with subtest("managed secrets change while machine and role application credentials keep their values"):
             before = json.loads(operator("cat /tmp/rotation-before.json"))

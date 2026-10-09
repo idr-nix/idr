@@ -24,39 +24,38 @@ Select the format with `--type` (`-t`):
 
 | Format | Output |
 |---|---|
-| `qcow2` (default) | QCOW2 with Zstandard compression. |
+| `qcow2` (default) | Uncompressed, sparse QCOW2 disk images. |
 | `raw` | Raw disk images for writing directly to disks. |
-| `vmdk` | Compressed, stream-optimized VMDK. |
-
-Other `qemu-img` output formats can also be selected.
+| `vmdk` | Stream-optimized VMDK disk images. |
 
 `--build-memory` (`-m`) sets the Disko build VM's memory in MiB; the default is
-`16384`. On Linux, the builder's QEMU memory is allocated as the guest touches it,
-up to this fixed limit; it does not grow automatically, and the entire amount is
-not preallocated. All disks are installed
-in one VM because the layout can include pools or volumes spanning disks.
-For example:
+`16384`. For example:
 
 ```sh
 idr-mk-images some-machine .data/images --type raw --build-memory 8192
 ```
 
-After installation, images are converted concurrently when resources allow.
-The automatic limit is two conversions, bounded by available CPUs and one GiB
-of available host memory per conversion. Set `--jobs` (`-j`) to override it;
-`--jobs 1` converts sequentially and can help on slower storage.
-
 Write each raw image to its corresponding target disk, replacing its contents.
 The target must be at least as large as the image's virtual size. After booting
 the installed system, [unlock its encrypted disks](unlock-disks.md).
 
+Pass additional `qemu-img convert` options directly, for example to compress QCOW2
+images with Zstandard:
+
+```sh
+idr-mk-images some-machine .data/images -c -o compression_type=zstd
+```
+
+Additional options reconvert current images even when the destination and format
+match. They do not force a fresh installation build. IDR's own flags retain their
+meanings.
+
 ### Reuse installed images
 
-The command first looks for a current, complete image set in the destination,
-then in the machine's local VM directory used by `idr -D`:
-`$PRJ_DATA_DIR/<host-id>/<machine>/qemu`. It converts those images to the requested
-format without moving or deleting the source images. Stop the local VM before
-exporting its disks. Reused VM images include changes made while that VM ran.
+The command reuses up-to-date images from the destination or the machine's local
+VM started with `idr -D`. It converts them to the requested format and preserves
+the source images. Stop the VM before exporting its disks. Exported images
+include changes made while the VM ran.
 
 Select another source directory with `--source`:
 
@@ -64,21 +63,12 @@ Select another source directory with `--source`:
 idr-mk-images some-machine .data/export --source .data/images --type vmdk
 ```
 
-Keep the hidden `.idr-mk-images-<machine>-<format>.json` receipt with its images
-when copying a set to another source directory. The receipt records the Disko
-builder, disk layout and encrypted installation inputs. Reuse requires a matching
-receipt and valid images of the expected sizes. Missing, stale or damaged sets
-are rebuilt; old images without receipts are rebuilt once. Reuse requires no
-secret decryption. Changes to encrypted installation files invalidate the receipt,
-even when the Nix image builder itself is unchanged.
+When copying images, include their hidden `.idr-mk-images-*.json` files so they
+can be reused. Missing, outdated, or damaged image sets are rebuilt automatically.
+Reusing current images does not require decrypting secrets.
 
 Use `--force` (`-f`) to build fresh installed images and replace matching outputs:
 
 ```sh
 idr-mk-images some-machine .data/images --force
 ```
-
-Other formats already in either directory remain in place. Receipts describe
-the installation inputs, not a pristine filesystem: they do not undo guest writes
-or deployment changes. Normal local VM restarts keep existing disks regardless
-of configuration changes; use the VM runner's `--force` to recreate them.

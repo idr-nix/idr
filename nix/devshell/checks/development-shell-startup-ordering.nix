@@ -10,7 +10,7 @@ top: {lib, ...}: {
       inherit (pkgs.stdenv.hostPlatform) isLinux;
       inherit (config.node.pkgs.stdenv.hostPlatform) system;
     in {
-      imports = with top.self.modules.nixosTest; [nix nix-store operator];
+      imports = with top.self.modules.nixosTest; [base operator];
 
       name = "development-shell-startup-ordering";
       globalTimeout = 20 * 60;
@@ -63,16 +63,17 @@ top: {lib, ...}: {
 
         start_all()
         machine.wait_for_unit("idr-project-fixture.service")
+        operator("direnv allow")
 
         with subtest("consume a generated file after idr-write-files on shell entry"):
             operator("git add nix/shell-startup/flake-module.nix")
             operator("test ! -e .config/startup-message && test ! -e .data/cache/startup-message")
-            operator("nix develop -c true")
+            operator("direnv exec . true")
             assert operator("cat .data/cache/startup-message") == "Generated before the startup action\n"
 
         with subtest("restore the generated input before the action runs again"):
             operator("rm .config/startup-message .data/cache/startup-message")
-            operator("nix develop -c true")
+            operator("direnv exec . true")
             assert operator("cat .data/cache/startup-message") == "Generated before the startup action\n"
       '';
     });

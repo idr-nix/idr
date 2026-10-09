@@ -10,7 +10,8 @@ top: {lib, ...}: {
         description = "Model a host with ${mode} /etc/machine-id";
         wantedBy = ["multi-user.target"];
         requires = ["dbus.service"];
-        after = ["dbus.service"];
+        # Wait for systemd to remove its transient machine-id mount before rm.
+        after = ["dbus.service" "systemd-machine-id-commit.service"];
         serviceConfig = {
           Type = "oneshot";
           RemainAfterExit = true;
@@ -40,7 +41,11 @@ top: {lib, ...}: {
               {options.defaults = lib.mkOption {type = lib.types.deferredModule;};}
               top.self.modules.nixosTest.nix
               top.self.modules.nixosTest.operator
-              {defaults = clientDefaults;}
+              top.self.modules.nixosTest.direnv
+              {
+                defaults = clientDefaults;
+                idr.test.direnv.offline = true;
+              }
             ];
           }).config.defaults;
         hosts = {
@@ -67,8 +72,9 @@ top: {lib, ...}: {
           missingid = identity "missing";
         };
       in {
-        imports = with top.self.modules.nixosTest; [nix nix-store operator];
+        imports = with top.self.modules.nixosTest; [base operator];
 
+        idr.test.direnv.offline = true;
         name = "shared-project-hosts";
         globalTimeout = 20 * 60;
         idr.test.storePaths = [top.self.packages.${system}.default];
@@ -150,28 +156,27 @@ top: {lib, ...}: {
               return host.succeed("su - operator -c " + shlex.quote("cd project && " + command), timeout=600)
 
           def state(host):
-              command = (
-                  'printf "%s\\n" "$PRJ_ROOT" "$PRJ_DATA_DIR" "$PC_SOCKET_PATH" "$SSH_OPTS" > /tmp/host-environment; '
-                  'ssh -G vm-test-machine > /tmp/host-ssh; '
-                  'idr -D; '
-                  "trap 'idr down' ERR; "
-                  'test -S "$PC_SOCKET_PATH"; '
-                  'idr process get vm-test-machine -o json > /tmp/host-process; '
-                  'trap - ERR'
-              )
-              operator(host, "nix --offline develop -c bash -ec " + shlex.quote(command))
+              root, data, socket, ssh_options = operator(host,
+                  "direnv exec . bash -ec " + shlex.quote(
+                      'printf "%s\\n" "$PRJ_ROOT" "$PRJ_DATA_DIR" "$PC_SOCKET_PATH" "$SSH_OPTS"'
+                  )
+              ).splitlines()
+              settings = dict(line.split(" ", 1) for line in operator(host,
+                  "direnv exec . ssh -G vm-test-machine"
+              ).splitlines())
               started.append(host)
-              root, data, socket, ssh_options = host.succeed("cat /tmp/host-environment").splitlines()
+              operator(host, "direnv exec . idr -D")
+              operator(host, "test -S " + shlex.quote(socket))
+              process = json.loads(operator(host, "direnv exec . idr process get vm-test-machine -o json"))
               options = shlex.split(ssh_options)
               ssh_config = options[options.index("-F") + 1]
-              settings = dict(line.split(" ", 1) for line in host.succeed("cat /tmp/host-ssh").splitlines())
               return {
                   "root": root,
                   "data": data,
                   "socket": socket,
                   "ssh_config": ssh_config,
                   "known_hosts": settings["userknownhostsfile"],
-                  "process": json.loads(host.succeed("cat /tmp/host-process")),
+                  "process": process,
               }
 
           ${lib.optionalString isLinux ''pathlib.Path("/tmp/idr-shared-project").mkdir()''}
@@ -189,6 +194,8 @@ top: {lib, ...}: {
                   assert operator(host, "cat shared-mount-proof") == "shared-checkout"
 
           hosts = (alpha, beta, emptyid, missingid)
+          for host in hosts:
+              operator(host, "direnv allow")
           started = []
           try:
               with subtest("host identities separate state and Process Compose daemons"):
@@ -197,8 +204,7 @@ top: {lib, ...}: {
                   assert emptyid.succeed("cat /etc/machine-id") == ""
                   missingid.fail("test -e /etc/machine-id")
                   identifiers += [host.succeed("hostname").strip() for host in (emptyid, missingid)]
-                  # The checkout stays unchanged: capture each host's environment,
-                  # start its real daemon, and query it in the same shell.
+                  # Each host caches its own environment for the shared checkout.
                   states = [state(host) for host in hosts]
                   for identifier, current in zip(identifiers, states):
                       assert current["root"] == "/home/operator/project", current
@@ -212,18 +218,15 @@ top: {lib, ...}: {
                       assert len({current[key] for current in states}) == len(hosts), (key, states)
 
               with subtest("stopping one host leaves every other host's daemon accessible"):
-                  operator(alpha, "nix --offline develop -c idr down")
+                  operator(alpha, "direnv exec . idr down")
                   started.remove(alpha)
-                  # A fresh entry on each remaining host verifies isolation after
-                  # alpha's shutdown, then stops that host's daemon.
                   for host in tuple(started):
-                      operator(host, "nix --offline develop -c bash -ec " + shlex.quote(
-                          "idr process get vm-test-machine -o json; idr down"
-                      ))
+                      operator(host, "direnv exec . idr process get vm-test-machine -o json")
+                      operator(host, "direnv exec . idr down")
                       started.remove(host)
           finally:
               for host in started:
-                  operator(host, "nix --offline develop -c idr down")
+                  operator(host, "direnv exec . idr down")
         '';
       });
     };

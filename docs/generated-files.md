@@ -45,7 +45,8 @@ To change a generated file, edit its Nix declaration.
 ### Run an action after writing
 
 Use `postWrite` to run a command after IDR writes a file. It runs from the project
-root. The command is a Bash fragment, which can invoke a Nushell script.
+root. The command can be a Bash fragment or an executable derivation, such as a
+Nushell script.
 
 For example, add this inside `perSystem` to generate an application configuration
 using `PRJ_DATA_DIR` from the current shell:
@@ -53,13 +54,13 @@ using `PRJ_DATA_DIR` from the current shell:
 ```nix
 idr.files.".data/example-app.template.json" = {
   content = ''{"logLevel": "info"}'';
-  postWrite = "${pkgs.writers.writeNu "render-example-config" ''
+  postWrite = pkgs.writers.writeNu "render-example-config" ''
     mkdir $env.PRJ_DATA_DIR
     open ($env.PRJ_ROOT | path join ".data/example-app.template.json")
       | insert dataDir ($env.PRJ_DATA_DIR | path join "example-app")
       | to json
       | save --force ($env.PRJ_DATA_DIR | path join "example-app.json")
-  ''}";
+  '';
 };
 ```
 

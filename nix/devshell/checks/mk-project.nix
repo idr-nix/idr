@@ -6,7 +6,7 @@ top: {lib, ...}: {
       devshell = top.self.packages.${system}.default;
       example = "example-${system}";
     in {
-      imports = with top.self.modules.nixosTest; [nix nix-store operator];
+      imports = with top.self.modules.nixosTest; [base operator];
 
       name = "mk-project";
       globalTimeout = 15 * 60;
@@ -26,6 +26,8 @@ top: {lib, ...}: {
       };
 
       testScript = ''
+        import shlex
+
         start_all()
         machine.wait_for_unit("multi-user.target")
 
@@ -38,6 +40,15 @@ top: {lib, ...}: {
                 "su - operator -c 'cd project && test -f .env && "
                 "git ls-files --error-unmatch flake.nix flake.lock .envrc .gitignore'"
             )
+
+        with subtest("export the project name before entering its devshell"):
+            envrc_check = (
+                "cd project && "
+                "watch_file() { :; }; watch_dir() { :; }; "
+                'use() { test "$1" = flake && test "$(printenv IDR_PROJECT_NAME)" = project; }; '
+                "unset IDR_PROJECT_NAME; source .envrc"
+            )
+            machine.succeed("su - operator -c " + shlex.quote(envrc_check))
 
         with subtest("add the example machine for this system as test-machine"):
             machine.succeed(

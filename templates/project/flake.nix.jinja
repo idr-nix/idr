@@ -1,5 +1,8 @@
+{% macro nix_string(value) -%}
+"{{ value | replace('\\', '\\\\') | replace('"', '\\"') | replace('${', '\\${') | replace('\n', '\\n') | replace('\r', '\\r') | replace('\t', '\\t') }}"
+{%- endmacro -%}
 {
-  description = "{{ name }}";
+  description = {{ nix_string(name) }};
   outputs = inputs @ {self, ...}:
     inputs.flake-parts.lib.mkFlake {inherit inputs;} (top @ {
       config,
@@ -9,7 +12,7 @@
     }: let
       flakeModules = inputs.idr.lib.importFlakeModules ./nix top;
     in {
-      idr.projectName = "{{ name }}";
+      idr.projectName = {{ nix_string(name) }};
       flake.modules.flake = flakeModules;
       imports = (inputs.nixpkgs.lib.attrValues flakeModules) ++ [inputs.idr.modules.flake.idr];
       systems = import inputs.systems;
@@ -24,7 +27,7 @@
       flake = false;
     };
     idr = {
-      url = "{{ idr_path }}";
+      url = {{ nix_string(idr_path) }};
       inputs = {
         nixpkgs.follows = "nixpkgs";
         nixpkgs-unstable.follows = "nixpkgs-unstable";

@@ -20,15 +20,15 @@ top: {lib, ...}: {
       inherit (pkgs.stdenv.hostPlatform) isLinux;
       inherit (config.node.pkgs.stdenv.hostPlatform) system;
     in {
-      imports = with top.self.modules.nixosTest; [nix nix-store operator];
+      imports = with top.self.modules.nixosTest; [base operator];
 
       name = "development-process-controls";
       globalTimeout = 20 * 60;
 
-      idr.test.storePaths = [top.self.packages.${system}.default config.node.pkgs.python3];
+      idr.test.storePaths = [top.self.packages.${system}.default];
 
       defaults = {pkgs, ...}: {
-        environment.systemPackages = [pkgs.curl pkgs.jq];
+        environment.systemPackages = [pkgs.curl];
         systemd.services.idr-project-fixture = {
           description = "Restore the project archive with a disabled documentation server";
           wantedBy = ["multi-user.target"];
@@ -64,81 +64,63 @@ top: {lib, ...}: {
       };
 
       testScript = ''
+        import json
         import shlex
 
-        def operator(command):
-            return machine.succeed(
+        def operator(command, *, succeeds=True, timeout=900):
+            run = machine.succeed if succeeds else machine.fail
+            return run(
                 "su - operator -c " + shlex.quote("cd project && " + command),
-                timeout=900,
+                timeout=timeout,
             )
+
+        def server_state():
+            states = json.loads(operator("direnv exec . idr process get docs-server -o json"))
+            assert len(states) == 1, states
+            return states[0]
+
+        def server_responds():
+            machine.wait_for_open_port(8080, addr="127.0.0.1", timeout=120)
+            assert machine.succeed(
+                "curl --fail --silent --show-error http://127.0.0.1:8080/"
+            ) == "Project documentation\n"
 
         start_all()
         machine.wait_for_unit("idr-project-fixture.service")
         operator("git add nix/local-docs/flake-module.nix")
+        operator("direnv allow")
 
-        # No checkout changes occur during these controls. Run the real commands
-        # in one development shell, including polling and failure cleanup.
-        with subtest("control the disabled documentation process"):
-            commands = r"""
-                set -o pipefail
-                wait_for_port() {
-                    local wanted="$1" deadline=$((SECONDS + "$2"))
-                    while true; do
-                        if { : > /dev/tcp/127.0.0.1/8080; } 2>/dev/null; then
-                            test "$wanted" = open && return 0
-                        else
-                            test "$wanted" = closed && return 0
-                        fi
-                        test "$SECONDS" -lt "$deadline" || return 1
-                        sleep 1
-                    done
-                }
-                server_state() {
-                    local states
-                    states=$(idr process get docs-server -o json) || return
-                    printf '%s\n' "$states" | jq -e 'length == 1' >/dev/null || return
-                    printf '%s\n' "$states" | jq '.[0]'
-                }
-                server_responds() {
-                    wait_for_port open 120
-                    curl --fail --silent --show-error http://127.0.0.1:8080/ > /tmp/docs-response
-                    cmp /tmp/docs-response <(printf 'Project documentation\n')
-                }
-                cleanup() {
-                    local status=$?
-                    trap - EXIT
-                    timeout --kill-after=10s 120s idr down || status=1
-                    wait_for_port closed 60 || status=1
-                    exit "$status"
-                }
+        daemon_started = False
+        try:
+            with subtest("a disabled process waits for an explicit start"):
+                operator("direnv exec . idr -D")
+                daemon_started = True
+                state = server_state()
+                assert not state["is_running"], state
+                machine.fail("curl --fail --silent --max-time 2 http://127.0.0.1:8080/")
 
-                echo 'a disabled process waits for an explicit start'
-                idr -D
-                trap cleanup EXIT
-                server_state | jq -e '.is_running | not' >/dev/null
-                if curl --fail --silent --max-time 2 http://127.0.0.1:8080/; then
-                    exit 1
-                fi
+            with subtest("start and stop one configured process"):
+                operator("direnv exec . idr process start docs-server")
+                server_responds()
+                operator("direnv exec . idr process stop docs-server")
+                machine.wait_for_closed_port(8080, addr="127.0.0.1", timeout=60)
+                state = server_state()
+                assert not state["is_running"], state
 
-                echo 'start and stop one configured process'
-                idr process start docs-server
-                server_responds
-                idr process stop docs-server
-                wait_for_port closed 60
-                server_state | jq -e '.is_running | not' >/dev/null
-
-                echo 'restart a running process'
-                idr process start docs-server
-                server_responds
-                before=$(server_state)
-                idr process restart docs-server
-                server_responds
-                after=$(server_state)
-                printf '%s\n' "$after" | jq -e '.is_running' >/dev/null
-                test "$(printf '%s\n' "$after" | jq '.pid')" != "$(printf '%s\n' "$before" | jq '.pid')"
-                echo 'stop Process Compose and its running process'
-            """
-            operator("nix develop -c bash -ec " + shlex.quote(commands))
+            with subtest("restart a running process"):
+                operator("direnv exec . idr process start docs-server")
+                server_responds()
+                before = server_state()
+                operator("direnv exec . idr process restart docs-server")
+                server_responds()
+                after = server_state()
+                assert after["is_running"], after
+                assert after["pid"] != before["pid"], (before, after)
+        finally:
+            if daemon_started:
+                with subtest("stop Process Compose and its running process"):
+                    operator("direnv exec . timeout --kill-after=10s 120s idr down")
+                    machine.wait_for_closed_port(8080, addr="127.0.0.1", timeout=60)
       '';
     });
   };

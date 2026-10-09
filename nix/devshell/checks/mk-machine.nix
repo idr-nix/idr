@@ -10,8 +10,9 @@ top: {lib, ...}: {
       inherit (pkgs.stdenv.hostPlatform) isLinux;
       inherit (config.node.pkgs.stdenv.hostPlatform) system;
     in {
-      imports = with top.self.modules.nixosTest; [nix nix-store operator];
+      imports = with top.self.modules.nixosTest; [base operator];
 
+      idr.test.direnv.offline = true;
       name = "mk-machine";
       globalTimeout = 20 * 60;
 
@@ -38,10 +39,10 @@ top: {lib, ...}: {
             machine.succeed(
                 "tar -C /home/operator --same-owner -xf /tmp/project.tar"
             )
-            machine.succeed("su - operator -c 'cd project && git init -q && git add -A'")
+            machine.succeed("su - operator -c 'cd project && git init -q && git add -A && direnv allow'")
             machine.succeed(
                 "su - operator -c 'cd project && "
-                "nix --offline develop -c idr-mk-machine -s ${system} another-machine </dev/null'",
+                "direnv exec . idr-mk-machine -s ${system} another-machine </dev/null'",
                 timeout=900,
             )
       '';

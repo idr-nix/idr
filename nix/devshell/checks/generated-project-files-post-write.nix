@@ -11,7 +11,7 @@ top: {lib, ...}: {
       inherit (pkgs.stdenv.hostPlatform) isLinux;
       inherit (config.node.pkgs.stdenv.hostPlatform) system;
     in {
-      imports = with top.self.modules.nixosTest; [nix nix-store operator];
+      imports = with top.self.modules.nixosTest; [base operator];
 
       name = "generated-project-files-post-write";
       globalTimeout = 20 * 60;
@@ -55,16 +55,21 @@ top: {lib, ...}: {
 
       testScript = ''
         import json
+        import shlex
+
+        def operator(command):
+            return machine.succeed(
+                "su - operator -c " + shlex.quote("cd project && " + command),
+                timeout=900,
+            )
 
         start_all()
         machine.wait_for_unit("idr-project-fixture.service")
+        operator("direnv allow")
 
         with subtest("render the application configuration after writing its template"):
-            machine.succeed(
-                "su - operator -c 'cd project && git add nix/project-files/flake-module.nix && "
-                "nix develop -c true'",
-                timeout=900,
-            )
+            operator("git add nix/project-files/flake-module.nix")
+            operator("direnv exec . true")
             rendered = json.loads(machine.succeed("cat /home/operator/project/.data/example-app.json"))
             assert rendered == {
                 "logLevel": "info",
@@ -72,22 +77,12 @@ top: {lib, ...}: {
             }, rendered
 
         with subtest("changing the environment alone does not rerun postWrite"):
-            machine.succeed(
-                "su - operator -c 'cd project && bash -e' <<'COMMANDS'\n"
-                'PRJ_DATA_DIR="$PWD/alternate-data" nix develop -c true\n'
-                "test ! -e alternate-data/example-app.json\n"
-                "COMMANDS",
-                timeout=900,
-            )
+            operator('PRJ_DATA_DIR="$PWD/alternate-data" direnv exec . true')
+            operator("test ! -e alternate-data/example-app.json")
 
         with subtest("changing the template reruns postWrite using the current environment"):
-            machine.succeed(
-                "su - operator -c 'cd project && bash -e' <<'COMMANDS'\n"
-                "sed -i s/info/debug/ nix/project-files/flake-module.nix\n"
-                'PRJ_DATA_DIR="$PWD/alternate-data" nix develop -c true\n'
-                "COMMANDS",
-                timeout=900,
-            )
+            operator("sed -i s/info/debug/ nix/project-files/flake-module.nix")
+            operator('PRJ_DATA_DIR="$PWD/alternate-data" direnv exec . true')
             rendered = json.loads(machine.succeed("cat /home/operator/project/alternate-data/example-app.json"))
             assert rendered == {
                 "logLevel": "debug",

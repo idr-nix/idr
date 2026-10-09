@@ -17,15 +17,21 @@ top: {lib, ...}: {
       }: {
         environment.systemPackages = [pkgs.jq];
         idr.secrets-source = {
+          api-document = {
+            sopsFile = ./fixtures/runtime-secrets/initial.enc.json;
+            format = "json";
+            key = "";
+            path = "/run/api-document.json";
+          };
           auth-header = {
             secrets.TOKEN = config.idr.secrets.api-token;
             template = "Authorization: Bearer $TOKEN; $UNDECLARED";
           };
           app-config = {
             secrets.TOKEN = config.idr.secrets.api-token;
-            exec = "${pkgs.writers.writeNu "app-config" ''
+            exec = pkgs.writers.writeNu "app-config" ''
               {token: $env.TOKEN} | to json
-            ''}";
+            '';
           };
           output-file = {
             secrets.HEADER = config.idr.secrets.auth-header;
@@ -67,6 +73,8 @@ top: {lib, ...}: {
             assert token_hash == "c841d8abfb5c205cd4db6da8926ad7555646e11538d9d58fa7e46c80b0fc3731"
             app_hash = machine.succeed("cat /run/my-app/token.sha256").split()[0]
             assert app_hash == token_hash
+            document_hash = machine.succeed("jq -jr .api_token /run/api-document.json | sha256sum").split()[0]
+            assert document_hash == token_hash
 
         with subtest("substitute declared variables and let the output file take precedence"):
             machine.succeed(
@@ -80,6 +88,7 @@ top: {lib, ...}: {
             secret_groups = set()
             for path in [
                 "/run/secrets/api-token",
+                "/run/api-document.json",
                 "/run/idr-secrets/auth-header",
                 "/run/idr-secrets/app-config",
                 "/run/idr-secrets/output-file",

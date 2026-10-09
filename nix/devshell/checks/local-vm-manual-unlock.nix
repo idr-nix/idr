@@ -19,22 +19,12 @@ top: {lib, ...}: {
           (lib.modules.importApply ./local-vm-fixture.nix {inherit top project system;})
         ];
 
+        idr.test.direnv.offline = true;
         name = "local-vm-manual-unlock";
 
         testScript = ''
           import shlex
           import time
-
-          # Repeated probes share one live devshell and retain their outer timeout.
-          def retry_in_shell(command):
-              return "bash -c " + shlex.quote("until " + command + "; do sleep 1; done")
-
-          def wait_for_stop_in_shell(command):
-              return "bash -c " + shlex.quote(
-                  "while true; do " + command + "; status=$?; "
-                  'case "$status" in 124|137) exit "$status";; esac; '
-                  'if test "$status" -ne 0; then break; fi; sleep 1; done'
-              )
 
           start_all()
           machine.wait_for_unit("idr-project-fixture.service", timeout=600)
@@ -46,7 +36,9 @@ top: {lib, ...}: {
               "ip -6 route show dev idr0 exact ${networkPrefix}::/48 | grep -q ."
           )
 
-          shell = "cd /root/project && nix --offline develop -c "
+          machine.succeed("cd /root/project && direnv allow")
+
+          shell = "cd /root/project && direnv exec . "
           process = "idr process get vm-test-machine -o json | jq -e "
           ready = process + shlex.quote(
               'length == 1 and .[0].is_running and .[0].is_ready == "Ready"'
@@ -83,13 +75,10 @@ top: {lib, ...}: {
 
               with subtest("unlock the disks using the documented command"):
                   machine.succeed(shell + "idr-unlock-disks vm-test-machine", timeout=360)
-                  machine.succeed(
-                      shell + retry_in_shell("bash -o pipefail -c " + shlex.quote(ready)),
-                      timeout=900,
+                  machine.wait_until_succeeds(
+                      shell + "bash -o pipefail -c " + shlex.quote(ready), timeout=900,
                   )
-                  assert machine.succeed(
-                      shell + "ssh vm-test-machine hostname", timeout=120,
-                  ).strip() == "test-machine"
+                  assert machine.succeed(shell + "ssh vm-test-machine hostname", timeout=120).strip() == "test-machine"
           except Exception:
               if daemon_started:
                   print(machine.execute(shell + "idr process logs --tail 1000 vm-test-machine", timeout=120))
@@ -98,8 +87,11 @@ top: {lib, ...}: {
               if daemon_started:
                   with subtest("stop the project"):
                       machine.succeed(shell + "idr down", timeout=120)
-                      machine.succeed(
-                          shell + wait_for_stop_in_shell("idr process get vm-test-machine -o json"), timeout=60,
+                      machine.wait_until_succeeds(
+                          shell + "bash -c " + shlex.quote(
+                              "idr process get vm-test-machine -o json; status=$?; "
+                              'test "$status" -gt 0 && test "$status" -lt 124'
+                          ), timeout=60,
                       )
         '';
       });

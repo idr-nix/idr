@@ -17,6 +17,7 @@ top: {lib, ...}: {
   in {
     checks = {
       backup-client-selection = pkgs.testers.runNixOSTest {
+        imports = [top.self.modules.nixosTest.disk-storage];
         name = "backup-client-selection";
         node.pkgsReadOnly = false;
         globalTimeout = 10 * 60;

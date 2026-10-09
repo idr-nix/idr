@@ -157,7 +157,8 @@ def main [node: string, --force] {
       let interval = $metadata.interval? | default $default_interval
       $changes = $changes | upsert $annotation $"interval=($interval) modified_ts=($timestamp)"
     }
-    $updates = $updates | append ($file | merge {updated: ($secrets | merge $changes), changes: $changes})
+    let updated = $secrets | merge $changes | transpose key value | sort-by key | transpose -rd
+    $updates = $updates | append ($file | merge {updated: $updated, changes: $changes})
   }
   let old_age = $old_age
   let new_age = $new_age

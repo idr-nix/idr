@@ -10,7 +10,7 @@ top: {lib, ...}: {
       inherit (config.node.pkgs.stdenv.hostPlatform) system;
     in {
       imports =
-        (with top.self.modules.nixosTest; [nix nix-store operator])
+        (with top.self.modules.nixosTest; [base operator])
         ++ [
           (lib.modules.importApply ./fixtures/documentation-project.nix {
             inherit project;
@@ -38,9 +38,10 @@ top: {lib, ...}: {
 
         start_all()
         machine.wait_for_unit("idr-project-fixture.service")
+        operator("direnv allow")
 
         with subtest("generate a library reference from function comments"):
-            operator("nix develop -c idr-generate-docs")
+            operator("direnv exec . idr-generate-docs")
             reference = operator("cat docs/generated/lib.md")
             assert "lib.greet" in reference, reference
             assert "Return a greeting for the named project operator." in reference, reference

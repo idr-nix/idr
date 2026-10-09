@@ -18,6 +18,7 @@ top: {lib, ...}: {
         };
       testScript = ''
         import json
+        from concurrent.futures import ThreadPoolExecutor
 
         start_all()
         members = {"alpha": alpha, "beta": beta, "gamma": gamma}
@@ -83,8 +84,12 @@ top: {lib, ...}: {
             ).strip() == "leader-replaced"
 
         with subtest("retain committed data when all members restart"):
-            for machine in members.values():
-                machine.shutdown()
+            # Stop independent VMs together, then wait for every member to be
+            # powered off before starting the cluster again.
+            with ThreadPoolExecutor(max_workers=len(members)) as executor:
+                shutdowns = [executor.submit(machine.shutdown) for machine in members.values()]
+                for shutdown in shutdowns:
+                    shutdown.result()
             start_all()
             for name, machine in members.items():
                 machine.wait_for_unit(f"idr-etcd-{name}.service")

@@ -39,7 +39,7 @@ in {
             ETCDCTL_COMMAND_TIMEOUT = "10s";
           }
           // lib.optionalAttrs (rbac.caCert != null) {
-            ETCDCTL_CACERT = "${rbac.caCert}";
+            ETCDCTL_CACERT = rbac.caCert;
           };
         unitConfig.StartLimitIntervalSec = 0;
         serviceConfig = {

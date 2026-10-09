@@ -1,4 +1,6 @@
 top: {lib, ...}: {
+  imports = [top.self.modules.nixosTest.disk-storage];
+
   globalTimeout = 10 * 60;
   node.pkgsReadOnly = false;
 

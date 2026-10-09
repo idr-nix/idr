@@ -21,13 +21,18 @@ For example, to read `api_token` from an adjacent `secrets.enc.json`:
 ```nix
 idr.secrets-source.api-token = {
   sopsFile = ./secrets.enc.json;
+  format = "json";
   key = "api_token";
 };
-sops.secrets.api-token.format = "json";
 ```
 
-Set the JSON format explicitly, since sops-nix defaults to YAML. If the key in the
-file matches the source name, you can omit `key`.
+The SOPS CLI detects the format from the filename, but sops-nix uses
+`sops.defaultSopsFormat`, which defaults to YAML. Set `format` on the source when
+it differs. If the key in the file matches the source name, you can omit `key`;
+use `key = ""` to read the whole file.
+
+For a SOPS source, `path` changes the runtime file location, and `restartUnits`
+and `reloadUnits` add systemd units to notify when the secret changes.
 
 ### Generate files from secrets
 
@@ -50,9 +55,9 @@ For example, this Nushell script creates a JSON file:
 ```nix
 idr.secrets-source.app-config = {
   secrets.TOKEN = config.idr.secrets.api-token;
-  exec = "${pkgs.writers.writeNu "app-config" ''
+  exec = pkgs.writers.writeNu "app-config" ''
     {token: $env.TOKEN} | to json
-  ''}";
+  '';
 };
 ```
 

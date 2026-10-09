@@ -7,6 +7,7 @@ top: {lib, ...}: {
     issued = config.checks.certificates-issue;
   in {
     checks.certificates-runtime = pkgs.testers.runNixOSTest {
+      imports = [top.self.modules.nixosTest.disk-storage];
       name = "certificates-runtime";
       globalTimeout = 10 * 60;
       defaults = {

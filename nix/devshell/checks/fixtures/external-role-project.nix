@@ -5,7 +5,7 @@
   prepared ? false,
 }: {lib, ...}: {
   imports =
-    (with top.self.modules.nixosTest; [nix nix-store operator ssh-git])
+    (with top.self.modules.nixosTest; [base operator ssh-git])
     ++ lib.optional (!prepared) (lib.modules.importApply ./operator-project.nix {
       inherit project machineId;
       extraSetup = ''

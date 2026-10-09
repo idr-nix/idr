@@ -20,7 +20,7 @@ top: {lib, ...}: {
             prepare_certificates("${./fixtures/certificates-role.nix}")
 
         with subtest("issue a selected certificate and preserve unrelated encrypted values"):
-            operator("nix develop -c idr-update-certs tls-first")
+            operator("direnv exec . idr-update-certs tls-first")
             operator("git diff --exit-code -- nix/role/tls/certs.enc.yaml")
             first = decrypt("nix/role/tls/certs.enc.yaml")
             assert first["application_token"] == "synthetic application value"
@@ -31,7 +31,7 @@ top: {lib, ...}: {
             operator("find .data/lego/accounts -type f -exec sha256sum {} + | sort > /tmp/account-before.sha256")
 
         with subtest("issue all remaining certificates into shared YAML and separate JSON files"):
-            operator("nix develop -c idr-update-certs")
+            operator("direnv exec . idr-update-certs")
             both = decrypt("nix/role/tls/certs.enc.yaml")
             assert both["application_token"] == first["application_token"]
             assert both["tls-first_cert"] == first["tls-first_cert"]

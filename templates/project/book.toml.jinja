@@ -1,5 +1,5 @@
 [book]
-title = "{{ name }}"
+title = {{ name | to_json(ensure_ascii=False) }}
 src = "."
 
 [output.html]

@@ -4,7 +4,7 @@ top: {lib, ...}: {
       inherit (pkgs.stdenv.hostPlatform) isLinux;
       devshell = top.self.packages.${config.node.pkgs.stdenv.hostPlatform.system}.default;
     in {
-      imports = with top.self.modules.nixosTest; [nix nix-store operator ssh-git];
+      imports = with top.self.modules.nixosTest; [base operator ssh-git];
 
       name = "mk-project-git";
       globalTimeout = 15 * 60;

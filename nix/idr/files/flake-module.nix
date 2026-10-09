@@ -75,9 +75,9 @@ in {
               };
               postWrite = lib.mkOption {
                 description = ''
-                  Script to run after file modification.
+                  Script to run after file modification, as a Bash fragment or an executable derivation.
                 '';
-                type = lib.types.lines;
+                type = lib.types.coercedTo lib.types.package toString lib.types.lines;
                 default = "";
               };
               copy = lib.mkOption {

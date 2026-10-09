@@ -5,6 +5,8 @@
   keys = import "${top.inputs.nixpkgs}/nixos/tests/ssh-keys.nix" pkgs;
   sourceKey = lib.trim (builtins.readFile ./backup/source_ed25519.pub);
 in {
+  imports = [top.self.modules.nixosTest.disk-storage];
+
   node.pkgsReadOnly = false;
   globalTimeout = 15 * 60;
 

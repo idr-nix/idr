@@ -32,7 +32,7 @@ in {
         after = [deviceUnit "network.target"];
         # grpc-proxy's --cacert also checks an absent client certificate. Use Go's trust store.
         environment = lib.optionalAttrs (proxy.caCert != null) {
-          SSL_CERT_FILE = "${proxy.caCert}";
+          SSL_CERT_FILE = proxy.caCert;
         };
         serviceConfig = {
           Type = "notify";

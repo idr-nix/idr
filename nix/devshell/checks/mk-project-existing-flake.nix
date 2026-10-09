@@ -18,7 +18,7 @@ top: {lib, ...}: {
             };
         }));
     in {
-      imports = with top.self.modules.nixosTest; [nix nix-store operator ssh-git];
+      imports = with top.self.modules.nixosTest; [base operator ssh-git];
 
       name = "mk-project-existing-flake";
       globalTimeout = 20 * 60;
@@ -68,6 +68,8 @@ top: {lib, ...}: {
       };
 
       testScript = ''
+        import shlex
+
         start_all()
         machine.wait_for_unit("sshd.service")
         machine.wait_for_unit("idr-existing-project-fixture.service")
@@ -91,10 +93,13 @@ top: {lib, ...}: {
             )
 
         with subtest("load the existing environment in the development shell"):
+            machine.succeed("su - operator -c 'cd project && direnv allow'", timeout=900)
             machine.succeed(
-                "su - operator -c 'cd project && bash -e' <<'COMMANDS'\n"
-                "nix develop -c bash -ec 'test \"$EXISTING_ENV\" = \"kept value\"; command -v idr-mk-machine'\n"
-                "COMMANDS",
+                "su - operator -c " + shlex.quote(
+                    "cd project && direnv exec . bash -ec " + shlex.quote(
+                        'test "$EXISTING_ENV" = "kept value"; command -v idr-mk-machine'
+                    )
+                ),
                 timeout=900,
             )
       '';

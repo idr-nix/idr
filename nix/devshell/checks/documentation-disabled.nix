@@ -10,7 +10,7 @@ top: {lib, ...}: {
       inherit (config.node.pkgs.stdenv.hostPlatform) system;
     in {
       imports =
-        (with top.self.modules.nixosTest; [nix nix-store operator])
+        (with top.self.modules.nixosTest; [base operator])
         ++ [
           (lib.modules.importApply ./fixtures/documentation-project.nix {
             inherit project;
@@ -37,15 +37,13 @@ top: {lib, ...}: {
 
         start_all()
         machine.wait_for_unit("idr-project-fixture.service")
+        operator("direnv allow")
 
         with subtest("opt out of documentation helpers while using the development shell"):
             operator("rm -rf docs/generated")
-            operator("nix develop -c bash -euc " + shlex.quote(
-                "menu > .data/menu; "
-                "if command -v idr-generate-docs; then exit 1; fi; "
-                "test ! -d docs/generated"
-            ))
-            menu = operator("cat .data/menu")
+            menu = operator("direnv exec . menu")
+            operator("direnv exec . bash -c 'command -v idr-generate-docs'", succeeds=False)
+            operator("test ! -d docs/generated")
             assert "idr-mk-machine" in menu, "the normal project commands are unavailable"
 
         with subtest("the documentation build command is no longer exported"):

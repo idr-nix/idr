@@ -73,6 +73,32 @@ top: {
       else qemu;
     diskoImagesScript = machine: let
       foreignSystem = machine.pkgs.stdenv.hostPlatform.system != hostLinuxSystem;
+      builderPkgs =
+        if foreignSystem
+        then hostLinuxPkgs
+        else machine.config.disko.imageBuilder.pkgs;
+      storeVirtiofsd = builderPkgs.writers.writeNuBin "virtiofsd" {} ''
+        def --wrapped main [...args: string] {
+          # All source store paths exist before the builder starts and are immutable.
+          # The writable exchange share keeps its normal cache policy.
+          let store_share = ($"--shared-dir=${builtins.storeDir}" in $args) or (
+            $args | window 2 | any {|pair| $pair == ["--shared-dir" "${builtins.storeDir}"]}
+          )
+          let explicit_cache = $args | any {|arg| $arg == "--cache" or ($arg | str starts-with "--cache=")}
+          let cache = if $store_share and not $explicit_cache { ["--cache" "always"] } else { [] }
+          exec ${lib.getExe builderPkgs.virtiofsd} ...$args ...$cache
+        }
+      '';
+      parallelBuilderPkgs =
+        (import ./parallel-image-allocation.nix {
+          inherit lib;
+          pkgs = builderPkgs;
+          diskDevices = machine.config.disko.devices.disk;
+          imageFormat = machine.config.disko.imageBuilder.imageFormat;
+        })
+        // {
+          vmTools = builderPkgs.vmTools.override {virtiofsd = storeVirtiofsd;};
+        };
       installedMachine = machine.extendModules {
         modules = [
           machine.config.disko.imageBuilder.extraConfig
@@ -93,6 +119,7 @@ top: {
                 extraConfig = lib.mkForce {
                   imports = [
                     machine.config.disko.imageBuilder.extraConfig
+                    (lib.modules.importApply ./parallel-disk-setup.nix {pkgs = builderPkgs;})
                     ({config, ...}: {
                       # Include the installed profile in Disko's copied/registered
                       # closure while retaining its temporary partitioning system.
@@ -123,6 +150,7 @@ top: {
                     })
                   ];
                 };
+                pkgs = parallelBuilderPkgs;
               }
               // lib.optionalAttrs (foreignSystem || hostLinuxPkgs.stdenv.hostPlatform.isAarch64) {
                 qemu =
@@ -131,13 +159,14 @@ top: {
                   else lib.mkDefault imageBuilderQemu;
               }
               // lib.optionalAttrs foreignSystem {
-                pkgs = hostLinuxPkgs;
                 kernelPackages = hostLinuxPkgs.linuxPackages;
                 enableBinfmt = true;
               };
           }
         ];
       }).config.system.build.diskoImagesScript;
+
+    imageBuilders = lib.mapAttrs (_name: diskoImagesScript) imageConfigurations;
 
     hostRuntime = top.inputs.idr.packages.${system}.idr-qemu-runtime;
     qemuProcess = machine: let
@@ -165,11 +194,11 @@ top: {
       in {
         "vm-${machineName}" =
           (
-            if machine.pkgs.stdenv.hostPlatform.system == hostLinuxSystem
+            if pkgs.stdenv.hostPlatform.isLinux && machine.pkgs.stdenv.hostPlatform.system == hostLinuxSystem
             then qemuProcess machine
             else {
               command = ''
-                exec ${lib.getExe pkgs.nix} --offline -L run ${lib.escapeShellArg "${self}#vm-${machineName}"} -- "$@"
+                exec ${lib.getExe pkgs.nix} ${lib.optionalString pkgs.stdenv.hostPlatform.isLinux "--offline "}-L run ${lib.escapeShellArg "${self}#vm-${machineName}"} -- "$@"
               '';
             }
           )
@@ -205,9 +234,12 @@ top: {
         source ${scripts}/idr-ssh-key.nu
       '';
   in {
-    devshells.default.idr.additionalPaths = lib.optionals (
-      lib.any (machine: machine.pkgs.stdenv.hostPlatform.system != hostLinuxSystem) (builtins.attrValues imageConfigurations)
-    ) [hostLinuxPkgs.pkgsStatic.qemu-user];
+    devshells.default.idr.additionalPaths =
+      lib.optionals pkgs.stdenv.hostPlatform.isDarwin [hostRuntime]
+      ++ lib.optionals (
+        pkgs.stdenv.hostPlatform.isLinux
+        && lib.any (machine: machine.pkgs.stdenv.hostPlatform.system != hostLinuxSystem) (builtins.attrValues imageConfigurations)
+      ) [hostLinuxPkgs.pkgsStatic.qemu-user];
 
     devshells.default.idr.sshConfig = lib.concatStringsSep "\n" (lib.mapAttrsToList (name: machine: let
         cfg = machine.config;
@@ -225,7 +257,15 @@ top: {
 
     process-compose.idr.settings.processes = machineProcesses;
 
-    legacyPackages.idrDiskoImagesScript = lib.mapAttrs (_name: diskoImagesScript) imageConfigurations;
+    legacyPackages = {
+      idrDiskoImagesScript = imageBuilders;
+      idrDiskoImagesInfo =
+        lib.mapAttrs (name: machine: {
+          metadata = machine.config.system.build.idr.meta.disko;
+          builder = imageBuilders.${name}.drvPath;
+        })
+        imageConfigurations;
+    };
 
     packages = lib.mapAttrs' (name: machine: let
       process = qemuProcess machine;

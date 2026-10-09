@@ -12,8 +12,11 @@ top: {lib, ...}: {
         machine.succeed("date -s '2027-09-07 17:00:00 UTC'")
 
         with subtest("authenticate both members before updating the team"):
-            assert machine.succeed("ssh temporary whoami").strip() == "root"
-            assert machine.succeed("ssh permanent whoami").strip() == "root"
+            temporary_user, permanent_user = machine.succeed(
+                "set -e; ssh temporary whoami; ssh permanent whoami"
+            ).splitlines()
+            assert temporary_user.strip() == "root"
+            assert permanent_user.strip() == "root"
 
         with subtest("apply the machine configuration with the member removed"):
             machine.succeed(
@@ -25,12 +28,13 @@ top: {lib, ...}: {
         with subtest("deny the removed member while retaining the other grant"):
             status, output = machine.execute("ssh temporary whoami 2>&1")
             assert status == 255 and "Permission denied" in output, output
-            assert machine.succeed("ssh permanent whoami").strip() == "root"
             # The expiring grant is still well within its validity period: its
             # removal, not the server clock, must account for the denial.
-            machine.succeed(
+            permanent_user = machine.succeed(
+                "set -e; ssh permanent whoami; "
                 "test $(date +%s) -lt $(date -d '2027-09-07 18:00:00 UTC' +%s)"
-            )
+            ).strip()
+            assert permanent_user == "root"
       '';
     };
   };

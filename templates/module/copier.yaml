@@ -1,5 +1,11 @@
 name:
   type: str
+name_nix:
+  type: str
+  when: false
+namespace:
+  type: str
+  when: false
 _skip_if_exists:
   - "{{ name }}/flake-module.nix"
   - "{{ name }}/nixos-module.nix"

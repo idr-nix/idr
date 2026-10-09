@@ -24,9 +24,15 @@ top: {lib, ...}: {
                 "printf %s \"$value\" | sha256sum'"
             ).split()[0]
 
-        original_hash = token_hash()
-        assert machine.succeed("cat /run/my-app/startup-token.sha256").split()[0] == original_hash
-        original_pid = machine.succeed("systemctl show my-app -p MainPID --value").strip()
+        initial_state = machine.succeed(
+            "bash -ec 'value=$(cat /run/secrets/api-token); "
+            "printf %s \"$value\" | sha256sum; "
+            "cat /run/my-app/startup-token.sha256; "
+            "systemctl show my-app -p MainPID --value'"
+        ).splitlines()
+        original_hash = initial_state[0].split()[0]
+        assert initial_state[1].split()[0] == original_hash
+        original_pid = initial_state[2].strip()
         assert original_pid != "0"
         machine.fail("test -e /run/my-app/reloaded-token.sha256")
 
@@ -42,8 +48,12 @@ top: {lib, ...}: {
                 "test \"$(cut -d ' ' -f 1 /run/my-app/reloaded-token.sha256)\" = " + updated_hash,
                 timeout=60,
             )
-            assert machine.succeed("systemctl show my-app -p MainPID --value").strip() == original_pid
-            assert machine.succeed("cat /run/my-app/startup-token.sha256").split()[0] == original_hash
+            reloaded_state = machine.succeed(
+                "bash -ec 'systemctl show my-app -p MainPID --value; "
+                "cat /run/my-app/startup-token.sha256'"
+            ).splitlines()
+            assert reloaded_state[0].strip() == original_pid
+            assert reloaded_state[1].split()[0] == original_hash
       '';
     };
 

@@ -21,12 +21,12 @@ top: {lib, ...}: {
       inherit (pkgs.stdenv.hostPlatform) isLinux;
       inherit (config.node.pkgs.stdenv.hostPlatform) system;
     in {
-      imports = with top.self.modules.nixosTest; [nix nix-store operator];
+      imports = with top.self.modules.nixosTest; [base operator];
 
       name = "development-redis";
       globalTimeout = 20 * 60;
 
-      idr.test.storePaths = [top.self.packages.${system}.default config.node.pkgs.redis];
+      idr.test.storePaths = [top.self.packages.${system}.default];
 
       defaults = {pkgs, ...}: {
         systemd.services.idr-project-fixture = {
@@ -72,7 +72,7 @@ top: {lib, ...}: {
             )
 
         def redis(command):
-            return operator("nix develop -c redis-cli -h 127.0.0.1 -p 6380 --raw " + command).strip()
+            return operator("direnv exec . redis-cli -h 127.0.0.1 -p 6380 --raw " + command).strip()
 
         start_all()
         machine.wait_for_unit("idr-project-fixture.service")
@@ -81,7 +81,8 @@ top: {lib, ...}: {
         try:
             with subtest("start the documented Redis service on port 6380"):
                 operator("git add nix/redis/flake-module.nix")
-                operator("nix develop -c idr -D")
+                operator("direnv allow")
+                operator("direnv exec . idr -D")
                 daemon_started = True
                 machine.wait_for_open_port(6380, addr="127.0.0.1", timeout=120)
                 assert redis("PING") == "PONG"
@@ -91,15 +92,20 @@ top: {lib, ...}: {
                 assert redis("SAVE") == "OK"
                 operator("test -s .data/redis/dump.rdb")
 
-            with subtest("recover saved data after restarting Redis"):
-                operator("nix develop -c idr process restart cache")
-                machine.wait_for_open_port(6380, addr="127.0.0.1", timeout=120)
-                assert redis("PING") == "PONG"
+            with subtest("restore saved data after restarting Redis"):
+                operator("direnv exec . idr process restart cache")
+                machine.wait_until_succeeds(
+                    "su - operator -c " + shlex.quote(
+                        "cd project && direnv exec . redis-cli -h 127.0.0.1 -p 6380 --raw PING | grep -Fx PONG"
+                    ),
+                    timeout=60,
+                )
                 assert redis("GET documentation-example") == "saved-value"
+
         finally:
             if daemon_started:
                 with subtest("stop the project and Redis"):
-                    operator("nix develop -c idr down")
+                    operator("direnv exec . idr down")
                     machine.wait_for_closed_port(6380, addr="127.0.0.1", timeout=60)
       '';
     });

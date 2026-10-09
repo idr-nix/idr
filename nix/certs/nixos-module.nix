@@ -35,11 +35,9 @@ in {
 
   config = lib.mkIf (sources != {}) {
     idr.secrets-source = lib.concatMapAttrs (name: sopsFile:
-      lib.mapAttrs' (_: field: lib.nameValuePair "${name}_${field}" {inherit sopsFile;}) fields)
-    sources;
-    sops.secrets = lib.concatMapAttrs (name: sopsFile:
       lib.mapAttrs' (_: field:
         lib.nameValuePair "${name}_${field}" {
+          inherit sopsFile;
           format =
             if lib.hasSuffix ".json" (toString sopsFile)
             then "json"

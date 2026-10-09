@@ -10,7 +10,7 @@ top: {lib, ...}: {
       inherit (pkgs.stdenv.hostPlatform) isLinux;
       inherit (config.node.pkgs.stdenv.hostPlatform) system;
     in {
-      imports = with top.self.modules.nixosTest; [nix nix-store operator];
+      imports = with top.self.modules.nixosTest; [base operator];
 
       name = "rotate-keys-requires-operator";
       globalTimeout = 15 * 60;
@@ -54,23 +54,24 @@ top: {lib, ...}: {
         start_all()
         machine.wait_for_unit("idr-project-fixture.service")
 
+        import shlex
+
+        def operator(command, succeeds=True):
+            run = machine.succeed if succeeds else machine.fail
+            return run("su - operator -c " + shlex.quote("cd project && " + command), timeout=900)
+
+        operator("direnv allow")
+
         with subtest("refuse rotation that would leave only the replaced bootstrap identity"):
-            machine.succeed(
-                "su - operator -c 'cd project && nix develop -c bash -e' <<'COMMANDS'\n"
-                "sha256sum nix/machine/test-machine/*.enc.json > /tmp/before.sha256\n"
-                "if idr-rotate-keys --force test-machine > /tmp/rotation.log 2>&1; then\n"
-                "  echo 'Rotation unexpectedly succeeded without an operator recipient' >&2\n"
-                "  exit 1\n"
-                "fi\n"
-                "grep -q 'remaining operator recipient must be able to decrypt' /tmp/rotation.log\n"
-                "sha256sum --check /tmp/before.sha256\n"
-                "test -s .data/machine-host-key/test-machine\n"
-                "test -s .data/machine-host-key/test-machine.pub\n"
-                "sops decrypt --output /dev/null nix/machine/test-machine/secrets.enc.json\n"
-                "sops decrypt --output /dev/null nix/machine/test-machine/disk-key.enc.json\n"
-                "COMMANDS",
-                timeout=900,
-            )
+            # Take the refusal snapshot after the same startup hooks as the rotation command.
+            operator("direnv exec . bash -euc 'sha256sum nix/machine/test-machine/*.enc.json > /tmp/before.sha256'")
+            failure = operator("direnv exec . idr-rotate-keys --force test-machine 2>&1", succeeds=False)
+            assert "remaining operator recipient must be able to decrypt" in failure, failure
+            operator("sha256sum --check /tmp/before.sha256")
+            operator("test -s .data/machine-host-key/test-machine")
+            operator("test -s .data/machine-host-key/test-machine.pub")
+            operator("direnv exec . sops decrypt --output /dev/null nix/machine/test-machine/secrets.enc.json")
+            operator("direnv exec . sops decrypt --output /dev/null nix/machine/test-machine/disk-key.enc.json")
       '';
     });
   };

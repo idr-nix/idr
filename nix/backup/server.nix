@@ -71,7 +71,7 @@ in {
           serviceConfig = {
             Type = "oneshot";
             RemainAfterExit = true;
-            ExecStart = "${prepare}";
+            ExecStart = prepare;
           };
         };
       }

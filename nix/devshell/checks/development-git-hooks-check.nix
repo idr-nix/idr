@@ -10,12 +10,12 @@ top: {lib, ...}: {
       inherit (pkgs.stdenv.hostPlatform) isLinux;
       inherit (config.node.pkgs.stdenv.hostPlatform) system;
     in {
-      imports = with top.self.modules.nixosTest; [nix nix-store operator];
+      imports = with top.self.modules.nixosTest; [base operator];
 
       name = "development-git-hooks-check";
       globalTimeout = 20 * 60;
 
-      idr.test.storePaths = [top.self.packages.${system}.default config.node.pkgs.pre-commit];
+      idr.test.storePaths = [top.self.packages.${system}.default];
 
       defaults = {pkgs, ...}: {
         systemd.services.idr-project-fixture = {
@@ -66,8 +66,12 @@ top: {lib, ...}: {
         machine.wait_for_unit("idr-project-fixture.service")
 
         with subtest("flake checks reject an unformatted tracked Nix file"):
-            operator("git add nix/formatting/flake-module.nix")
-            operator("printf '{ value=1; }\\n' > format-example.nix && git add format-example.nix")
+            operator(
+                "git add nix/formatting/flake-module.nix"
+                " && printf '{ value=1; }\\n' > format-example.nix"
+                " && git add format-example.nix"
+            )
+            operator("direnv allow")
             output = operator("nix flake check -L 2>&1", succeeds=False)
             assert "alejandra" in output.lower(), output
             assert "files were modified by this hook" in output, output
@@ -75,9 +79,11 @@ top: {lib, ...}: {
             assert operator("cat format-example.nix") == "{ value=1; }\n"
 
         with subtest("format the project and pass the same flake checks"):
-            operator("nix develop -c pre-commit run --all-files", succeeds=False)
+            operator("direnv exec . pre-commit run --all-files", succeeds=False)
             assert "value = 1;" in operator("cat format-example.nix")
-            operator("git add -u && nix flake check -L")
+            operator("git add -u")
+            operator("direnv exec . pre-commit run --all-files")
+            operator("nix flake check -L")
       '';
     });
   };

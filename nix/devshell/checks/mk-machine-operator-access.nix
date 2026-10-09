@@ -12,7 +12,7 @@ top: {lib, ...}: {
       machineId = top.self.nixosConfigurations."example-${system}".config.idr.preset.base.id;
     in {
       imports =
-        (with top.self.modules.nixosTest; [nix nix-store operator ssh-git])
+        (with top.self.modules.nixosTest; [base operator ssh-git])
         ++ [
           (lib.modules.importApply ./fixtures/operator-project.nix {
             inherit project machineId;
@@ -23,6 +23,7 @@ top: {lib, ...}: {
       name = "mk-machine-operator-access";
       globalTimeout = 20 * 60;
 
+      idr.test.direnv.extraArgs = ["--no-update-lock-file"];
       idr.test.storePaths = [top.self.packages.${system}.default];
       containers = lib.optionalAttrs isLinux {machine = {};};
 
@@ -37,11 +38,13 @@ top: {lib, ...}: {
       };
 
       testScript = ''
-        def operator_script(commands):
+        import json
+        import shlex
+
+        def operator(command, timeout=900):
             return machine.succeed(
-                "su - operator -c 'cd project && bash -e' <<'COMMANDS'\n"
-                + commands + "COMMANDS",
-                timeout=900,
+                "su - operator -c " + shlex.quote("cd project && " + command),
+                timeout=timeout,
             )
 
         start_all()
@@ -49,35 +52,30 @@ top: {lib, ...}: {
         machine.wait_for_unit("sshd.service")
 
         with subtest("update the operator's team membership"):
-            machine.succeed(
-                "su - operator -c 'cd project && "
+            operator(
                 "test -s .data/machine-host-key/test-machine && "
                 "test -s .data/machine-host-key/test-machine.pub && "
-                "nix flake update team'",
+                "nix flake update team",
                 timeout=600,
             )
+            operator("direnv allow")
 
         with subtest("reencrypt secrets but retain bootstrap keys when the operator key is wrong"):
-            operator_script(
-                "nix develop --no-update-lock-file -c true\n"
-                "test -s .data/machine-host-key/test-machine\n"
-                "test -s .data/machine-host-key/test-machine.pub\n"
-                "for file in nix/machine/test-machine/secrets.enc.json nix/machine/test-machine/disk-key.enc.json; do\n"
-                "  jq -e --arg recipient \"$(cat ~/.config/idr/operator.age.pub)\" "
-                "'any(.sops.age[]; .recipient == $recipient)' \"$file\" >/dev/null\n"
-                "done\n"
-            )
+            operator("direnv exec . true")
+            operator("test -s .data/machine-host-key/test-machine")
+            operator("test -s .data/machine-host-key/test-machine.pub")
+            recipient = operator("cat ~/.config/idr/operator.age.pub").strip()
+            for file in ["secrets.enc.json", "disk-key.enc.json"]:
+                secrets = json.loads(operator("cat nix/machine/test-machine/" + file))
+                assert any(key["recipient"] == recipient for key in secrets["sops"]["age"]), file
 
         with subtest("correct the operator key and decrypt both files after bootstrap cleanup"):
-            operator_script(
-                "sed -i 's|wrong.age|operator.age|' .env\n"
-                "nix develop --no-update-lock-file -c bash -ec '\n"
-                "  test ! -e .data/machine-host-key/test-machine\n"
-                "  test ! -e .data/machine-host-key/test-machine.pub\n"
-                "  sops decrypt --output /dev/null nix/machine/test-machine/secrets.enc.json\n"
-                "  sops decrypt --output /dev/null nix/machine/test-machine/disk-key.enc.json\n"
-                "'\n"
-            )
+            operator("sed -i 's|wrong.age|operator.age|' .env")
+            operator("direnv exec . true")
+            operator("test ! -e .data/machine-host-key/test-machine")
+            operator("test ! -e .data/machine-host-key/test-machine.pub")
+            operator("direnv exec . sops decrypt --output /dev/null nix/machine/test-machine/secrets.enc.json")
+            operator("direnv exec . sops decrypt --output /dev/null nix/machine/test-machine/disk-key.enc.json")
       '';
     });
   };

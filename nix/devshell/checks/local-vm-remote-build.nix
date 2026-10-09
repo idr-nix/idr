@@ -18,6 +18,7 @@ top: {lib, ...}: {
           (lib.modules.importApply ./local-vm-fixture.nix {inherit top project system;})
         ];
 
+        idr.test.direnv.offline = true;
         name = "local-vm-remote-build";
         idr.test.storePaths = [unsignedInput];
 
@@ -47,10 +48,6 @@ top: {lib, ...}: {
           import re
           import shlex
 
-          # Keep repeated probes in one live devshell instead of re-evaluating it.
-          def retry_in_shell(command):
-              return "bash -c " + shlex.quote("until " + command + "; do sleep 1; done")
-
           start_all()
           machine.wait_for_unit("idr-project-fixture.service", timeout=600)
           machine.wait_for_unit("systemd-networkd.service")
@@ -61,7 +58,9 @@ top: {lib, ...}: {
               "ip -6 route show dev idr0 exact ${networkPrefix}::/48 | grep -q ."
           )
 
-          shell = "cd /root/project && nix --offline develop -c "
+          machine.succeed("cd /root/project && direnv allow")
+
+          shell = "cd /root/project && direnv exec . "
           daemon_started = False
           try:
               with subtest("start the local VM from the exported images"):
@@ -72,9 +71,8 @@ top: {lib, ...}: {
                       "idr process get vm-test-machine -o json | "
                       "jq -e 'length == 1 and .[0].is_running and .[0].is_ready == \"Ready\"'"
                   )
-                  machine.succeed(
-                      shell + retry_in_shell("bash -o pipefail -c " + shlex.quote(readiness)),
-                      timeout=900,
+                  machine.wait_until_succeeds(
+                      shell + "bash -o pipefail -c " + shlex.quote(readiness), timeout=900,
                   )
 
               with subtest("deploy the machine's declared offline build dependencies"):
@@ -110,12 +108,13 @@ top: {lib, ...}: {
                   machine.succeed(
                       shell + "ssh vm-test-machine test ! -e " + shlex.quote(unsigned_input), timeout=120,
                   )
-                  failure = machine.fail(
+                  status, failure = machine.execute(
                       shell + "bash -c " + shlex.quote(
                           "deploy -s --remote-build --checksigs .#vm-test-machine -- -L 2>&1"
                       ),
                       timeout=1200,
                   )
+                  assert 0 < status < 124, (status, failure)
                   rejected = re.search(
                       r"cannot add path '(/nix/store/[^']+)' because it lacks a signature", failure,
                   )
@@ -130,12 +129,18 @@ top: {lib, ...}: {
                   machine.succeed(
                       shell + "deploy -s --remote-build .#vm-test-machine -- -L", timeout=1200,
                   )
-                  assert machine.succeed(
-                      shell + "ssh vm-test-machine cat /etc/idr-remote-build", timeout=120,
-                  ).strip() == "built on destination"
-                  assert machine.succeed(
-                      shell + "ssh vm-test-machine readlink -f /nix/var/nix/profiles/system", timeout=120,
-                  ).strip() == profile
+                  remote_verification = (
+                      "set -e; "
+                      "content=$(cat /etc/idr-remote-build); "
+                      "profile=$(readlink -f /nix/var/nix/profiles/system); "
+                      "printf '%s\\n%s\\n' \"$content\" \"$profile\""
+                  )
+                  deployed_content, deployed_profile = machine.succeed(
+                      shell + "ssh vm-test-machine " + shlex.quote(remote_verification),
+                      timeout=120,
+                  ).split("\n", 1)
+                  assert deployed_content.strip() == "built on destination"
+                  assert deployed_profile.strip() == profile
                   # An ordinary local deployment would have built this output here.
                   machine.succeed("test ! -e " + shlex.quote(profile))
           except Exception:
@@ -146,8 +151,11 @@ top: {lib, ...}: {
               if daemon_started:
                   with subtest("stop the project"):
                       machine.succeed(shell + "idr down", timeout=120)
-                      machine.wait_until_fails(
-                          shell + "idr process get vm-test-machine -o json", timeout=60,
+                      machine.wait_until_succeeds(
+                          shell + "bash -c " + shlex.quote(
+                              "idr process get vm-test-machine -o json; status=$?; "
+                              'test "$status" -gt 0 && test "$status" -lt 124'
+                          ), timeout=60,
                       )
         '';
       });

@@ -15,15 +15,12 @@ top: {lib, ...}: {
           (lib.modules.importApply ./local-vm-fixture.nix {inherit top project system;})
         ];
 
+        idr.test.direnv.offline = true;
         name = "local-vm-installation";
         globalTimeout = lib.mkForce (60 * 60);
 
         testScript = ''
           import shlex
-
-          # Keep repeated probes in one live devshell instead of re-evaluating it.
-          def retry_in_shell(command):
-              return "bash -c " + shlex.quote("until " + command + "; do sleep 1; done")
 
           start_all()
           machine.wait_for_unit("idr-project-fixture.service", timeout=600)
@@ -35,10 +32,17 @@ top: {lib, ...}: {
               "ip -6 route show dev idr0 exact ${networkPrefix}::/48 | grep -q ."
           )
 
+          machine.succeed("su - root -c 'cd /root/project && direnv allow'")
+
           def shell(command):
               return "su - root -c " + shlex.quote(
-                  "cd /root/project && nix --offline develop -c " + command
+                  "cd /root/project && direnv exec . " + command
               )
+
+          def start_vm_and_wait(command):
+              machine.succeed(shell("idr process start vm-test-machine"), timeout=120)
+              machine.wait_until_succeeds(shell(command), timeout=900)
+
           readiness = (
               "idr process get vm-test-machine -o json | "
               "jq -e 'length == 1 and .[0].is_running and .[0].is_ready == \"Ready\"'"
@@ -48,10 +52,7 @@ top: {lib, ...}: {
               with subtest("start the existing local VM"):
                   machine.succeed(shell("idr -D"), timeout=600)
                   daemon_started = True
-                  machine.succeed(shell("idr process start vm-test-machine"), timeout=120)
-                  machine.succeed(
-                      shell(retry_in_shell("bash -o pipefail -c " + shlex.quote(readiness))), timeout=900,
-                  )
+                  start_vm_and_wait("bash -o pipefail -c " + shlex.quote(readiness))
                   assert machine.succeed(
                       shell("ssh vm-test-machine hostname"), timeout=120,
                   ).strip() == "test-machine"
@@ -67,10 +68,8 @@ top: {lib, ...}: {
                       "jq -e 'length == 1 and (.[0].is_running | not)'"
                   )
                   machine.succeed(shell("bash -o pipefail -c " + shlex.quote(stopped)))
-                  machine.succeed(shell("idr process start vm-test-machine"), timeout=120)
-                  machine.succeed(
-                      shell(retry_in_shell("ssh vm-test-machine systemctl is-active idr-qemu-installer.service")),
-                      timeout=900,
+                  start_vm_and_wait(
+                      "ssh vm-test-machine systemctl is-active idr-qemu-installer.service"
                   )
                   installer_boot = machine.succeed(
                       shell("ssh vm-test-machine cat /proc/sys/kernel/random/boot_id")
@@ -96,17 +95,20 @@ top: {lib, ...}: {
 
               with subtest("boot and automatically unlock the freshly installed system"):
                   installed = (
-                      'test "$(ssh vm-test-machine hostname)" = test-machine && '
-                      'test "$(ssh vm-test-machine cat /etc/installation-test)" = '
+                      'test "$(hostname)" = test-machine && '
+                      'test "$(cat /etc/installation-test)" = '
                       + shlex.quote("installed with idr-anywhere")
                   )
-                  machine.succeed(shell(retry_in_shell("bash -ec " + shlex.quote(installed))), timeout=900)
+                  machine.wait_until_succeeds(
+                      shell("ssh vm-test-machine " + shlex.quote("bash -ec " + shlex.quote(installed))),
+                      timeout=900,
+                  )
                   installed_boot = machine.succeed(
                       shell("ssh vm-test-machine cat /proc/sys/kernel/random/boot_id")
                   ).strip()
                   assert installed_boot and installed_boot != installer_boot
-                  machine.succeed(
-                      shell(retry_in_shell("bash -o pipefail -c " + shlex.quote(readiness))), timeout=120,
+                  machine.wait_until_succeeds(
+                      shell("bash -o pipefail -c " + shlex.quote(readiness)), timeout=120,
                   )
           except Exception:
               if daemon_started:
@@ -115,7 +117,12 @@ top: {lib, ...}: {
           finally:
               if daemon_started:
                   machine.succeed(shell("idr down"), timeout=120)
-                  machine.wait_until_fails(shell("idr process get vm-test-machine -o json"), timeout=60)
+                  machine.wait_until_succeeds(
+                      shell("bash -c " + shlex.quote(
+                          "idr process get vm-test-machine -o json; status=$?; "
+                          'test "$status" -gt 0 && test "$status" -lt 124'
+                      )), timeout=60,
+                  )
         '';
       });
     };

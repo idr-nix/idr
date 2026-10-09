@@ -16,8 +16,9 @@ top: {lib, ...}: {
           else "/tmp/shared";
         archivePath = "${archiveDirectory}/project.tar";
       in {
-        imports = [(lib.modules.importApply ./nested-qemu-fixture.nix {})] ++ (with top.self.modules.nixosTest; [nix nix-store operator]);
+        imports = [(lib.modules.importApply ./nested-qemu-fixture.nix {})] ++ (with top.self.modules.nixosTest; [base operator]);
 
+        idr.test.direnv.offline = true;
         name = "mk-images";
         globalTimeout = 60 * 60;
 
@@ -69,6 +70,7 @@ top: {lib, ...}: {
           ''}
           start_all()
           machine.wait_for_unit("idr-project-fixture.service")
+          project("direnv allow")
           ${lib.optionalString isDarwin ''
             machine.wait_for_unit("swap.target")
             machine.succeed("swapon --show && swapon --noheadings --show=NAME | grep -Fx /var/lib/idr-test.swap")
@@ -82,7 +84,7 @@ top: {lib, ...}: {
               # Keep progress visible while the driver buffers command stdout.
               project(
                   "mkdir .data/images && "
-                  "nix --offline develop -c idr-mk-images test-machine .data/images --build-memory 4096 >&2",
+                  "direnv exec . idr-mk-images test-machine .data/images --build-memory 8192 --jobs 2 >&2",
                   timeout=2700,
               )
 
@@ -108,6 +110,9 @@ top: {lib, ...}: {
                   assert info["format"] == "qcow2", info
                   assert info["virtual-size"] == int(disk["size"]), info
                   assert not info.get("backing-filename"), info
+                  assert info["actual-size"] < info["virtual-size"], info
+                  extents = json.loads(machine.succeed(f"qemu-img map --output=json {image}"))
+                  assert not any(extent.get("compressed") for extent in extents), extents
 
               unfinished = machine.succeed(
                   f"find {image_dir} -maxdepth 1 -type f "

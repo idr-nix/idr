@@ -49,8 +49,11 @@ top: {lib, ...}: {
                         timeout=180,
                     )
                     client.wait_for_unit("multi-user.target")
-                    assert client.succeed("findmnt -n -o SOURCE /").strip() == "/dev/mapper/cryptroot"
-                    assert client.succeed("cat /unlock-test-marker").strip() == "persisted on the encrypted root"
+                    root_source, unlock_marker = client.succeed(
+                        "set -e; findmnt -n -o SOURCE /; cat /unlock-test-marker"
+                    ).split("\n", 1)
+                    assert root_source.strip() == "/dev/mapper/cryptroot"
+                    assert unlock_marker.strip() == "persisted on the encrypted root"
                     server.wait_until_succeeds(
                         "journalctl -u 'idr-disk-unlock@*' --no-pager | grep -F 'Sent disk key to client-123456abcdef.'"
                     )

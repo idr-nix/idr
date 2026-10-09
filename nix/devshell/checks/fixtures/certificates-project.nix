@@ -24,7 +24,7 @@
   });
 in {
   imports =
-    (with top.self.modules.nixosTest; [nix nix-store operator ssh-git])
+    (with top.self.modules.nixosTest; [base operator ssh-git])
     ++ [
       (lib.modules.importApply ./operator-project.nix {
         inherit project machineId;

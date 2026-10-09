@@ -16,30 +16,72 @@ top: {lib, ...}: {
           if hostPkgs.stdenv.hostPlatform.isDarwin
           then "/run/idr-project-archive"
           else toString project;
-        # Plain harness code is copied to /tmp without adding a store registration root.
-        scenarioScript = ''
+      in {
+        imports = [(lib.modules.importApply ./nested-qemu-fixture.nix {})] ++ (with top.self.modules.nixosTest; [base operator]);
+        idr.test.direnv.offline = true;
+        inherit name;
+        globalTimeout = 60 * 60;
+        idr.test.storePaths = [top.self.packages.${system}.default];
+
+        nodeDefaults.virtualisation = lib.mkIf hostPkgs.stdenv.hostPlatform.isDarwin {
+          sharedDirectories.project-archive = {
+            source = toString project;
+            target = projectDirectory;
+            securityModel = "none";
+          };
+          fileSystems.${projectDirectory}.options = ["ro"];
+        };
+
+        defaults = {pkgs, ...}: {
+          environment.systemPackages = [pkgs.qemu pkgs.util-linux];
+          # These checks convert existing images; a cache miss must fail rather
+          # than silently running another Disko build.
+          environment.variables.IDR_IMAGE_BUILD_VM = pkgs.writeShellScript "unexpected-image-generation" ''
+            echo "format conversion unexpectedly regenerated its source images" >&2
+            exit 1
+          '';
+          systemd.services.idr-project-fixture = {
+            description = "Restore the documented project and cached source images";
+            wantedBy = ["multi-user.target"];
+            after = ["systemd-tmpfiles-setup.service"];
+            path = with pkgs; [coreutils gnutar gitMinimal];
+            serviceConfig = {
+              Type = "oneshot";
+              RemainAfterExit = true;
+              User = "operator";
+              Group = "operator";
+              WorkingDirectory = "/home/operator";
+            };
+            script = ''
+              tar -xf ${projectDirectory}/project.tar
+              image_cache="project/.data/$(cat /etc/machine-id)/test-machine"
+              mkdir -p "$image_cache"
+              mv project/.data/images "$image_cache/qemu"
+              git -C project init -q
+              git -C project add -A
+            '';
+          };
+        };
+
+        testScript = ''
           import json
           import shlex
-          import subprocess
           import time
-          from contextlib import contextmanager
+
+          start_all()
+          machine.wait_for_unit("idr-project-fixture.service")
+          machine.succeed("su - operator -c " + shlex.quote("cd project && direnv allow"), timeout=600)
+          # Retain the former complete-scenario deadline as well as each command's limit.
+          scenario_deadline = time.monotonic() + 3500
 
           def project(command, timeout=600):
-              result = subprocess.run(
-                  ["bash", "-euo", "pipefail", "-c", command],
-                  stdout=subprocess.PIPE,
-                  text=True,
-                  timeout=timeout,
+              remaining = int(scenario_deadline - time.monotonic())
+              assert remaining > 0, "image format scenario exceeded 3500 seconds"
+              loaded = "cd project && direnv exec . bash -euo pipefail -c " + shlex.quote(command)
+              return machine.succeed(
+                  "su - operator -c " + shlex.quote(loaded),
+                  timeout=min(timeout, remaining),
               )
-              assert result.returncode == 0, (command, result.returncode, result.stdout)
-              return result.stdout
-
-          @contextmanager
-          def subtest(name):
-              started = time.monotonic()
-              print(f"starting subtest: {name}", flush=True)
-              yield
-              print(f"subtest succeeded: {name} ({time.monotonic() - started:.2f}s)", flush=True)
 
           disks = json.loads(project(
               "nix --offline eval --json .#nixosConfigurations.test-machine.config.disko.devices.disk "
@@ -92,9 +134,10 @@ top: {lib, ...}: {
                       assert partitions["label"] == "gpt", partitions
                       assert partitions["partitions"], partitions
                   else:
-                      assert info["format-specific"]["data"]["create-type"] == "streamOptimized", info
-                      extents = info["format-specific"]["data"]["extents"]
-                      assert extents and all(extent.get("compressed") for extent in extents), info
+                      if image_format == "vmdk":
+                          assert info["format-specific"]["data"]["create-type"] == "streamOptimized", info
+                          extents = info["format-specific"]["data"]["extents"]
+                          assert extents and all(extent.get("compressed") for extent in extents), info
                       project(f"qemu-img check {image}", timeout=300)
               stored = json.loads(project(f"cat {directory}/.idr-mk-images-test-machine-{image_format}.json"))
               assert stored["format"] == image_format, stored
@@ -104,68 +147,38 @@ top: {lib, ...}: {
 
           ${scenario}
         '';
-      in {
-        imports = [(lib.modules.importApply ./nested-qemu-fixture.nix {})] ++ (with top.self.modules.nixosTest; [nix nix-store operator]);
-        inherit name;
-        globalTimeout = 60 * 60;
-        idr.test.storePaths = [top.self.packages.${system}.default];
-
-        nodeDefaults.virtualisation = lib.mkIf hostPkgs.stdenv.hostPlatform.isDarwin {
-          sharedDirectories.project-archive = {
-            source = toString project;
-            target = projectDirectory;
-            securityModel = "none";
-          };
-          fileSystems.${projectDirectory}.options = ["ro"];
-        };
-
-        defaults = {pkgs, ...}: {
-          # Python executes the assertion harness; IDR is supplied by the devshell.
-          environment.systemPackages = [pkgs.qemu pkgs.util-linux pkgs.python3];
-          # These checks convert existing images; a cache miss must fail rather
-          # than silently running another Disko build.
-          environment.variables.IDR_IMAGE_BUILD_VM = pkgs.writeShellScript "unexpected-image-generation" ''
-            echo "format conversion unexpectedly regenerated its source images" >&2
-            exit 1
-          '';
-          systemd.services.idr-project-fixture = {
-            description = "Restore the documented project and cached source images";
-            wantedBy = ["multi-user.target"];
-            after = ["systemd-tmpfiles-setup.service"];
-            path = with pkgs; [coreutils gnutar gitMinimal];
-            serviceConfig = {
-              Type = "oneshot";
-              RemainAfterExit = true;
-              User = "operator";
-              Group = "operator";
-              WorkingDirectory = "/home/operator";
-            };
-            script = ''
-              tar -xf ${projectDirectory}/project.tar
-              image_cache="project/.data/$(cat /etc/machine-id)/test-machine"
-              mkdir -p "$image_cache"
-              mv project/.data/images "$image_cache/qemu"
-              git -C project init -q
-              git -C project add -A
-            '';
-          };
-        };
-
-        testScript = ''
-          import shlex
-
-          start_all()
-          machine.wait_for_unit("idr-project-fixture.service")
-          # Keep harness files outside the project and its Nix input snapshot.
-          scenario = ${builtins.toJSON scenarioScript}
-          machine.succeed("printf %s " + shlex.quote(scenario) + " > /tmp/idr-image-scenario.py")
-          # Conversion, inspection and repair all run within one actual devshell.
-          command = "cd project && nix --offline develop -c /run/current-system/sw/bin/python3 -u /tmp/idr-image-scenario.py"
-          print(machine.succeed("su - operator -c " + shlex.quote(command), timeout=3500))
-        '';
       });
   in {
     checks = {
+      mk-images-qcow2 = mkFormatCheck "mk-images-qcow2" ''
+        with subtest("export cached images as compressed QCOW2"):
+            project("mkdir .data/images")
+            project(
+                "cd .data/images && idr-mk-images test-machine -c -o compression_type=zstd",
+                timeout=1800,
+            )
+            inspect_images("/home/operator/project/.data/images", "qcow2")
+            for disk in disks:
+                image = shlex.quote(f".data/images/{disk['name']}.qcow2")
+                info = json.loads(project(f"qemu-img info --output=json {image}"))
+                assert info["format-specific"]["data"]["compression-type"] == "zstd", info
+                extents = json.loads(project(f"qemu-img map --output=json {image}"))
+                assert any(extent.get("compressed") for extent in extents), extents
+
+        with subtest("reconvert current QCOW2 images with different options"):
+            project(
+                "idr-mk-images test-machine .data/images -o cluster_size=131072",
+                timeout=1800,
+            )
+            inspect_images("/home/operator/project/.data/images", "qcow2")
+            for disk in disks:
+                image = shlex.quote(f".data/images/{disk['name']}.qcow2")
+                info = json.loads(project(f"qemu-img info --output=json {image}"))
+                assert info["cluster-size"] == 131072, info
+                extents = json.loads(project(f"qemu-img map --output=json {image}"))
+                assert not any(extent.get("compressed") for extent in extents), extents
+            assert_sources_retained()
+      '';
       mk-images-raw = mkFormatCheck "mk-images-raw" ''
         with subtest("convert cached images to raw in an explicit destination"):
             project("mkdir .data/images")

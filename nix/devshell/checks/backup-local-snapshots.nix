@@ -2,6 +2,7 @@ top: {lib, ...}: {
   perSystem = {pkgs, ...}: {
     checks = {
       backup-local-snapshots = pkgs.testers.runNixOSTest {
+        imports = [top.self.modules.nixosTest.disk-storage];
         name = "backup-local-snapshots";
         node.pkgsReadOnly = false;
         globalTimeout = 10 * 60;
@@ -53,8 +54,9 @@ top: {lib, ...}: {
 
           with subtest("the base preset takes local snapshots without a backup server"):
               machine.fail("getent passwd idr-backup")
-              machine.succeed("systemctl start --wait sanoid.service")
-              snapshots = machine.succeed("zfs list -H -t snapshot -o name -r p1").splitlines()
+              snapshots = machine.succeed(
+                  "systemctl start --wait sanoid.service && zfs list -H -t snapshot -o name -r p1"
+              ).splitlines()
               current = [
                   name for name in snapshots
                   if name.startswith("p1/application@autosnap_") and "2000-01-01" not in name
@@ -65,8 +67,9 @@ top: {lib, ...}: {
           with subtest("retention prunes old snapshots while Disko exclusions preserve them"):
               # Retention counts come from the start of a Sanoid pass. A second
               # run can retire the last old snapshot without going below hourly=1.
-              machine.succeed("systemctl start --wait sanoid.service")
-              snapshots = machine.succeed("zfs list -H -t snapshot -o name -r p1").splitlines()
+              snapshots = machine.succeed(
+                  "systemctl start --wait sanoid.service && zfs list -H -t snapshot -o name -r p1"
+              ).splitlines()
               assert [name for name in snapshots if name.startswith("p1/application@")] == current
               expected = [
                   "autosnap_2000-01-01_00:00:00_hourly",

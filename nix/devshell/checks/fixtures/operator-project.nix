@@ -32,7 +32,7 @@ in {
         RemainAfterExit = true;
         User = user;
         Group = user;
-        WorkingDirectory = "${homeDirectory}";
+        WorkingDirectory = homeDirectory;
       };
       script = ''
         umask 077

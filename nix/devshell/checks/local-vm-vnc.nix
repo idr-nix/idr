@@ -15,6 +15,7 @@ top: {lib, ...}: {
           (lib.modules.importApply ./local-vm-fixture.nix {inherit top project system;})
         ];
 
+        idr.test.direnv.offline = true;
         name = "local-vm-vnc";
         defaults = {pkgs, ...}: {
           services.dbus.enable = true;
@@ -37,10 +38,6 @@ top: {lib, ...}: {
         testScript = ''
           import shlex
 
-          # Repeated probes share one live devshell and retain their outer timeout.
-          def retry_in_shell(command):
-              return "bash -c " + shlex.quote("until " + command + "; do sleep 1; done")
-
           start_all()
           machine.wait_for_unit("idr-project-fixture.service", timeout=600)
           machine.wait_for_unit("idr-test-display.service")
@@ -52,7 +49,8 @@ top: {lib, ...}: {
               "ip -6 route show dev idr0 exact ${networkPrefix}::/48 | grep -q ."
           )
 
-          shell = "cd /root/project && nix --offline develop -c "
+          shell = "cd /root/project && direnv exec . "
+          machine.succeed("cd /root/project && direnv allow")
           machine.succeed(
               "sed -i '/networking.hostName =/a\\    idr.meta.preset.base.qemu.vnc.enable = true;' "
               "/root/project/nix/machine/test-machine/configuration.nix"
@@ -63,13 +61,13 @@ top: {lib, ...}: {
               with subtest("enable VNC, enter the shell, and start the VM"):
                   machine.succeed(shell + "idr -D", timeout=600)
                   daemon_started = True
-                  machine.succeed(shell + "idr process start vm-test-machine", timeout=120)
                   readiness = (
                       "idr process get vm-test-machine -o json | "
                       "jq -e 'length == 1 and .[0].is_running and .[0].is_ready == \"Ready\"'"
                   )
-                  machine.succeed(
-                      shell + retry_in_shell("bash -o pipefail -c " + shlex.quote(readiness)), timeout=900,
+                  machine.succeed(shell + "idr process start vm-test-machine", timeout=120)
+                  machine.wait_until_succeeds(
+                      shell + "bash -o pipefail -c " + shlex.quote(readiness), timeout=900,
                   )
 
               with subtest("open the display with the actual idr-vnc Remmina client"):
@@ -84,26 +82,27 @@ top: {lib, ...}: {
                   machine.succeed("xdotool windowfocus --sync " + window + " key Return")
 
               with subtest("log in and send keyboard input through the VNC display"):
-                  machine.succeed("xdotool type --clearmodifiers root && xdotool key Return")
-                  machine.succeed(
-                      shell + retry_in_shell("ssh vm-test-machine " + shlex.quote(
-                          "stty -F /dev/tty1 -a | grep -q -- ' -echo '"
-                      )), timeout=120,
+                  # The helper types the decrypted password through stdin, never argv/logs.
+                  password_prompt = "ssh vm-test-machine " + shlex.quote(
+                      "stty -F /dev/tty1 -a | grep -q -- ' -echo '"
                   )
-                  # Type the decrypted test password through stdin, never an argv or log.
-                  machine.succeed(shell + "python /etc/idr-vnc-password.py", timeout=120)
-                  machine.succeed(
-                      shell + retry_in_shell("ssh vm-test-machine pgrep -t tty1 -x bash"), timeout=120,
+                  login = (
+                      "xdotool type --clearmodifiers root\n"
+                      "xdotool key Return\n"
+                      "until " + password_prompt + "; do sleep 1; done\n"
+                      "python /etc/idr-vnc-password.py"
                   )
+                  machine.succeed(shell + "bash -e -c " + shlex.quote(login), timeout=120)
+                  machine.wait_until_succeeds(shell + "ssh vm-test-machine pgrep -t tty1 -x bash", timeout=120)
                   command = "printf '%s\\n' idr-vnc-connected > /run/idr-vnc-result"
                   machine.succeed(
                       "xdotool type --clearmodifiers -- " + shlex.quote(command)
                       + " && xdotool key Return"
                   )
-                  machine.succeed(
-                      shell + retry_in_shell("ssh vm-test-machine " + shlex.quote(
+                  machine.wait_until_succeeds(
+                      shell + "ssh vm-test-machine " + shlex.quote(
                           "test \"$(cat /run/idr-vnc-result)\" = idr-vnc-connected"
-                      )), timeout=120,
+                      ), timeout=120,
                   )
           except Exception:
               print(machine.execute("cat /tmp/idr-vnc.log"))
@@ -111,8 +110,11 @@ top: {lib, ...}: {
           finally:
               if daemon_started:
                   machine.succeed(shell + "idr down", timeout=120)
-                  machine.wait_until_fails(
-                      shell + "idr process get vm-test-machine -o json", timeout=60,
+                  machine.wait_until_succeeds(
+                      shell + "bash -c " + shlex.quote(
+                          "idr process get vm-test-machine -o json; status=$?; "
+                          'test "$status" -gt 0 && test "$status" -lt 124'
+                      ), timeout=60,
                   )
         '';
       });

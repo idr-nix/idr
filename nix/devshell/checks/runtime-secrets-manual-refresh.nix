@@ -79,26 +79,33 @@ top: {lib, ...}: {
         machine.wait_for_unit("my-app.service")
         machine.wait_until_succeeds("test -s /run/my-app/config.sha256")
 
-        template_system = machine.succeed(
-            "readlink -f /run/current-system/specialisation/template-updated"
-        ).strip()
-        generator_system = machine.succeed(
+        def application_state():
+            token_hash, config_hash, application_hash, pid = machine.succeed(
+                "set -e; "
+                "sha256sum < /run/secrets/api-token; "
+                "sha256sum < /run/idr-secrets/app-config; "
+                "cat /run/my-app/config.sha256; printf '\\n'; "
+                "systemctl show my-app -p MainPID --value"
+            ).splitlines()
+            return token_hash.split()[0], config_hash.split()[0], application_hash.strip(), pid.strip()
+
+        template_system, generator_system = machine.succeed(
+            "set -e; "
+            "readlink -f /run/current-system/specialisation/template-updated; "
             "readlink -f /run/current-system/specialisation/generator-updated"
-        ).strip()
-        original_token_hash = machine.succeed("sha256sum < /run/secrets/api-token").split()[0]
-        original_config_hash = machine.succeed("sha256sum < /run/idr-secrets/app-config").split()[0]
-        assert machine.succeed("cat /run/my-app/config.sha256").strip() == original_config_hash
-        original_pid = machine.succeed("systemctl show my-app -p MainPID --value").strip()
+        ).splitlines()
+        original_token_hash, original_config_hash, application_hash, original_pid = application_state()
+        assert application_hash == original_config_hash
         assert original_pid != "0"
 
         with subtest("deploy a template-only change and reload the application manually"):
             machine.succeed(template_system + "/bin/switch-to-configuration test", timeout=180)
             machine.wait_until_succeeds('test -z "$(systemctl list-jobs --no-legend)"')
-            template_hash = machine.succeed("sha256sum < /run/idr-secrets/app-config").split()[0]
+            template_token_hash, template_hash, application_hash, application_pid = application_state()
             assert template_hash != original_config_hash
-            assert machine.succeed("sha256sum < /run/secrets/api-token").split()[0] == original_token_hash
-            assert machine.succeed("cat /run/my-app/config.sha256").strip() == original_config_hash
-            assert machine.succeed("systemctl show my-app -p MainPID --value").strip() == original_pid
+            assert template_token_hash == original_token_hash
+            assert application_hash == original_config_hash
+            assert application_pid == original_pid
 
             machine.succeed("systemctl reload my-app")
             machine.wait_until_succeeds(
@@ -109,11 +116,11 @@ top: {lib, ...}: {
         with subtest("deploy a generator change and restart the application manually"):
             machine.succeed(generator_system + "/bin/switch-to-configuration test", timeout=180)
             machine.wait_until_succeeds('test -z "$(systemctl list-jobs --no-legend)"')
-            generator_hash = machine.succeed("sha256sum < /run/idr-secrets/app-config").split()[0]
+            generator_token_hash, generator_hash, application_hash, application_pid = application_state()
             assert generator_hash not in [original_config_hash, template_hash]
-            assert machine.succeed("sha256sum < /run/secrets/api-token").split()[0] == original_token_hash
-            assert machine.succeed("cat /run/my-app/config.sha256").strip() == template_hash
-            assert machine.succeed("systemctl show my-app -p MainPID --value").strip() == original_pid
+            assert generator_token_hash == original_token_hash
+            assert application_hash == template_hash
+            assert application_pid == original_pid
 
             machine.succeed("systemctl restart my-app")
             machine.wait_for_unit("my-app.service")

@@ -9,7 +9,10 @@ idr-mk-module some-module
 This creates two files in `nix/some-module/`:
 
 - `flake-module.nix` exports the NixOS module as `flake.modules.nixos.some-module`.
-- `nixos-module.nix` declares named instances at `idr.some-module` and contains the module's configuration.
+- `nixos-module.nix` declares named instances at `idr.project.<project-name>.some-module` and contains the module's configuration.
+
+The project name comes from the project folder. Override the prefix with, for
+example, `IDR_PROJECT_NAMESPACE=company.services idr-mk-module some-module`.
 
 Machines created by [`idr-mk-machine`](mk-machine.md) automatically import exported
 project NixOS modules.
@@ -18,10 +21,11 @@ The template supports multiple named instances on the same machine. No instances
 are configured by default. Declaring an instance enables it unless its `enable`
 option is false.
 
-Declare instances from a role or machine configuration:
+For a project folder named `my-project`, declare instances from a role or machine
+configuration:
 
 ```nix
-idr.some-module = {
+idr.project.my-project.some-module = {
   first = {};
   second = {};
   paused.enable = false;

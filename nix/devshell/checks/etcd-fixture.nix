@@ -12,6 +12,8 @@
   };
   publicKeys = builtins.fromJSON (builtins.readFile ./fixtures/etcd/wireguard-public-keys.json);
 in {
+  imports = [top.self.modules.nixosTest.disk-storage];
+
   globalTimeout = 10 * 60;
   defaults = {
     config,
@@ -49,7 +51,7 @@ in {
             fsType = "none";
             options = ["bind"];
           };
-        "/nix/.rw-store" = lib.mkIf config.virtualisation.writableStore {
+        "/nix/.rw-store" = lib.mkIf (config.virtualisation.writableStore && config.virtualisation.writableStoreUseTmpfs) {
           fsType = "tmpfs";
           options = ["mode=0755"];
           neededForBoot = true;
@@ -117,8 +119,10 @@ in {
       fsType = "ext4";
       autoFormat = true;
     };
-    idr.secrets-source = lib.genAttrs secrets (_: {sopsFile = ./fixtures/etcd/initial.enc.json;});
-    sops.secrets = lib.genAttrs secrets (_: {format = "json";});
+    idr.secrets-source = lib.genAttrs secrets (_: {
+      sopsFile = ./fixtures/etcd/initial.enc.json;
+      format = "json";
+    });
     idr.etcd = {
       privateNetwork = {
         listenPort = 61010;

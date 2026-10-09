@@ -10,12 +10,12 @@ top: {lib, ...}: {
       inherit (pkgs.stdenv.hostPlatform) isLinux;
       inherit (config.node.pkgs.stdenv.hostPlatform) system;
     in {
-      imports = with top.self.modules.nixosTest; [nix nix-store operator];
+      imports = with top.self.modules.nixosTest; [base operator];
 
       name = "development-shell-tools";
       globalTimeout = 20 * 60;
 
-      idr.test.storePaths = [top.self.packages.${system}.default] ++ (with config.node.pkgs; [curl git]);
+      idr.test.storePaths = [top.self.packages.${system}.default];
 
       defaults = {pkgs, ...}: {
         systemd.services.idr-project-fixture = {
@@ -66,21 +66,36 @@ top: {lib, ...}: {
         start_all()
         machine.wait_for_unit("idr-project-fixture.service")
 
-        with subtest("load the documented packages, environment and command"):
+        with subtest("enter the documented shell directly before allowing direnv"):
             operator("git add nix/shell-tools/flake-module.nix")
             operator("printf '\\nLOCAL_LABEL=local-$((2 + 3))\\n' >> .env")
-            operator("nix develop -c bash -euc " + shlex.quote(
-                'curl --version; test "$APP_ENV" = development; test "$LOCAL_LABEL" = local-5'
+            operator("test ! -e .data/cache")
+            operator("nix --offline develop -c bash -euc " + shlex.quote(
+                'curl --version; test "$APP_ENV" = development; '
+                'test "$LOCAL_LABEL" = local-5; test -d "$PRJ_DATA_DIR/cache"'
             ))
-            assert "check-whitespace" in operator("nix develop -c menu")
-            operator("nix develop -c check-whitespace")
+            assert "check-whitespace" in operator("nix --offline develop -c menu")
+            operator("nix --offline develop -c check-whitespace")
 
-        with subtest("the custom command reports invalid patch whitespace"):
-            operator("printf 'A line with trailing spaces  \\n' > patch.txt")
-            output = operator("nix develop -c check-whitespace", succeeds=False)
-            assert "trailing whitespace" in output, output
-            operator("printf 'A clean replacement\\n' > patch.txt")
-            operator("nix develop -c check-whitespace")
+        with subtest("load the documented packages, environment and command through direnv"):
+            operator("rmdir .data/cache")
+            operator("direnv allow")
+            operator("direnv exec . curl --version")
+            operator("test -d .data/cache")
+            assert operator("direnv exec . printenv APP_ENV").strip() == "development"
+            assert operator("direnv exec . printenv LOCAL_LABEL").strip() == "local-5"
+            menu_output = operator("direnv exec . menu")
+            assert "check-whitespace" in menu_output
+            operator("direnv exec . check-whitespace")
+
+        with subtest("reject trailing whitespace in an indexed file and pass after repair"):
+            operator("printf 'A dirty line \\n' > patch.txt")
+            output = operator("direnv exec . check-whitespace 2>&1", succeeds=False)
+            assert "trailing whitespace" in output.lower(), output
+            assert "patch.txt:" in output, output
+            operator("printf 'A clean line\\n' > patch.txt")
+            operator("direnv exec . check-whitespace")
+
       '';
     });
   };

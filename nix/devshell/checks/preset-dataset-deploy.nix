@@ -1,6 +1,7 @@
 top: {lib, ...}: {
   perSystem = {pkgs, ...}: {
     checks.preset-dataset-deploy = pkgs.testers.runNixOSTest {
+      imports = [top.self.modules.nixosTest.disk-storage];
       name = "preset-dataset-deploy";
       node.pkgsReadOnly = false;
       globalTimeout = 10 * 60;

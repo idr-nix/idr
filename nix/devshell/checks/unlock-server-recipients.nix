@@ -18,7 +18,7 @@ top: {lib, ...}: {
       '';
     in {
       imports =
-        (with top.self.modules.nixosTest; [nix nix-store operator ssh-git])
+        (with top.self.modules.nixosTest; [base operator ssh-git])
         ++ [
           (lib.modules.importApply ./fixtures/operator-project.nix {
             inherit project machineId;
@@ -70,7 +70,8 @@ top: {lib, ...}: {
 
         with subtest("update team membership and enter the shell to grant disk-key access"):
             operator("nix flake update team")
-            operator("nix develop -c idr-mk-role some-role </dev/null")
+            operator("direnv allow")
+            operator("direnv exec . idr-mk-role some-role </dev/null")
             role = "some-role-" + json.loads(operator("cat nix/role/some-role/meta.json"))["id"]
             operator(
                 "sed -i '/networking.hostName =/a\\      idr.roles.\"" + role
@@ -78,24 +79,22 @@ top: {lib, ...}: {
             )
 
         with subtest("the operator can decrypt all secrets while the unlock server can decrypt only the disk key"):
-            operator(
-                "nix develop -c bash -eu <<'COMMANDS'\n"
-                "sops nix/role/some-role/secrets.enc.json\n"
-                "git add nix/role/some-role/secrets.enc.json\n"
-                "test ! -e .data/machine-host-key/test-machine\n"
-                "for file in nix/machine/test-machine/*.enc.json nix/role/some-role/secrets.enc.json; do\n"
-                "  sops decrypt --output /dev/null \"$file\"\n"
-                "done\n"
-                "unset SOPS_AGE_KEY_CMD\n"
-                "export SOPS_AGE_KEY_FILE=$HOME/.config/idr/unlock-server.age\n"
-                "sops decrypt --output /dev/null nix/machine/test-machine/disk-key.enc.json\n"
-                "for file in nix/machine/test-machine/secrets.enc.json nix/role/some-role/secrets.enc.json; do\n"
-                "  if sops decrypt --output /dev/null \"$file\" >/dev/null 2>&1; then\n"
-                "    echo \"Unlock server unexpectedly decrypts $file\" >&2; exit 1\n"
-                "  fi\n"
-                "done\n"
-                "COMMANDS"
-            )
+            operator("direnv exec . sops nix/role/some-role/secrets.enc.json")
+            operator("git add nix/role/some-role/secrets.enc.json")
+            operator("test ! -e .data/machine-host-key/test-machine")
+            secrets = operator("printf '%s\\n' nix/machine/test-machine/*.enc.json nix/role/some-role/secrets.enc.json").splitlines()
+            for path in secrets:
+                operator("direnv exec . sops decrypt --output /dev/null " + shlex.quote(path))
+                decrypt = (
+                    "direnv exec . env -u SOPS_AGE_KEY_CMD "
+                    "SOPS_AGE_KEY_FILE=\"$HOME\"/.config/idr/unlock-server.age "
+                    "sops decrypt --output /dev/null " + shlex.quote(path)
+                )
+                if path.endswith("disk-key.enc.json"):
+                    operator(decrypt)
+                else:
+                    failure = machine.fail("su - operator -c " + shlex.quote("cd project && " + decrypt + " 2>&1"), timeout=900)
+                    assert "Failed to get the data key" in failure, failure
       '';
     });
   };

@@ -3,8 +3,8 @@
   nodes.alpha = {config, ...}: {
     idr.secrets-source = lib.genAttrs ["root-password" "application-password"] (_: {
       sopsFile = ./fixtures/etcd/initial.enc.json;
+      format = "json";
     });
-    sops.secrets = lib.genAttrs ["root-password" "application-password"] (_: {format = "json";});
     idr.etcd.rbac = [
       {
         endpoints = map (name: {domain = "etcd-${name}.example.test";}) ["alpha" "beta" "gamma"];

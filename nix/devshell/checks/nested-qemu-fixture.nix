@@ -15,8 +15,12 @@ in {
   nodes = lib.optionalAttrs (!isLinux) {
     machine = {
       virtualisation = {
-        cores = 4;
-        memorySize = 6144;
+        # Leave room for IDR's normal 16 GiB image builder and the outer guest.
+        memorySize = lib.mkDefault (20 * 1024);
+        # Nix supplies the per-build CPU budget at runtime; zero means all cores.
+        qemu.options = lib.mkAfter [
+          ''-smp "$(if [ "''${NIX_BUILD_CORES:-0}" -gt 0 ]; then printf '%s' "$NIX_BUILD_CORES"; else ${lib.getExe' hostPkgs.coreutils "nproc"}; fi)"''
+        ];
         diskSize = 32 * 1024;
         # The guest also holds image files and the nested VM's memory.
         writableStoreUseTmpfs = lib.mkForce false;
@@ -30,15 +34,6 @@ in {
           size = 4096;
         }
       ];
-      environment.variables = {
-        IDR_QEMU_BUILD_MEMORY = "4096";
-        NIX_BUILD_CORES = "2";
-      };
-      nix.settings = {
-        cores = 2;
-        max-jobs = 2;
-        eval-cores = lib.mkForce 2;
-      };
     };
   };
 }

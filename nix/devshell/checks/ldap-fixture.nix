@@ -31,6 +31,8 @@
   team = builtins.fromTOML (builtins.readFile ./fixtures/ldap/team.toml);
   ldapTop = top // {idr-lib = top.idr-lib // {inherit team;};};
 in {
+  imports = [top.self.modules.nixosTest.disk-storage];
+
   _module.args.ldapCredentials = credentials;
   globalTimeout = 10 * 60;
 
@@ -73,8 +75,8 @@ in {
     systemd.services.sops-install-secrets.after = ["systemd-tmpfiles-setup.service"];
     idr.secrets-source = lib.genAttrs ["ldap-cert" "ldap-cert-key" "ldap-admin-password"] (_: {
       sopsFile = "${credentials}/initial.enc.json";
+      format = "json";
     });
-    sops.secrets = lib.genAttrs ["ldap-cert" "ldap-cert-key" "ldap-admin-password"] (_: {format = "json";});
     idr.ldap.main = {
       secondLevelDomain = "example";
       topLevelDomain = "com";

@@ -39,7 +39,7 @@ top: {
     runtimeInputs = [pkgs.coreutils pkgs.flock];
     text =
       lib.optionalString pkgs.stdenv.hostPlatform.isDarwin ''
-        export IDR_IMAGE_BUILD_VM=${lib.escapeShellArg (lib.getExe top.self.packages.${pkgs.stdenv.hostPlatform.system}.idr-qemu-image-build-vm)}
+        export IDR_IMAGE_BUILD_VM=${lib.escapeShellArg (lib.getExe top.self.packages.${pkgs.stdenv.hostPlatform.system}.idr-qemu-image-build-vm-launcher)}
       ''
       + ''
         exec ${lib.getExe idrNu} -n --no-std-lib --no-history ${scripts}/idr-mk-images.nu "$@"

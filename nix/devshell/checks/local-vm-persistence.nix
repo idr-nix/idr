@@ -40,21 +40,34 @@ top: {lib, ...}: {
     checks = {
       local-vm-persistence = pkgs.testers.runNixOSTest ({config, ...}: let
         inherit (config.node.pkgs.stdenv.hostPlatform) system;
+        inherit (pkgs.stdenv.hostPlatform) isDarwin;
+        archiveDirectory =
+          if isDarwin
+          then "/tmp/test-output"
+          else "/tmp/shared";
         networkPrefix = top.self.nixosConfigurations."example-${system}".config.idr.qemu.networkPrefix;
       in {
         imports = [
           (lib.modules.importApply ./local-vm-fixture.nix {inherit top project system;})
         ];
 
+        idr.test.direnv.offline = true;
         name = "local-vm-persistence";
 
+        # Export directly to the driver output on both supported host platforms.
+        nodeDefaults.virtualisation.sharedDirectories.test-output = lib.mkIf isDarwin {
+          source = ''"$out"'';
+          target = archiveDirectory;
+          securityModel = "none";
+        };
+
         testScript = ''
+          import json
           import shlex
 
-          # Keep repeated probes in one live devshell instead of re-evaluating it.
-          def retry_in_shell(command):
-              return "bash -c " + shlex.quote("until " + command + "; do sleep 1; done")
-
+          ${lib.optionalString (!isDarwin) ''
+            machine.shared_dir = machine.out_dir
+          ''}
           start_all()
           machine.wait_for_unit("idr-project-fixture.service", timeout=600)
           machine.wait_for_unit("systemd-networkd.service")
@@ -62,7 +75,8 @@ top: {lib, ...}: {
               "ip -6 route show dev idr0 exact ${networkPrefix}::/48 | grep -q ."
           )
 
-          shell = "cd /root/project && nix --offline develop -c "
+          shell = "cd /root/project && direnv exec . "
+          machine.succeed("cd /root/project && direnv allow")
 
           def remote(command):
               return shell + "ssh vm-test-machine " + shlex.quote(command)
@@ -77,9 +91,15 @@ top: {lib, ...}: {
                       "idr process get vm-test-machine -o json | "
                       "jq -e 'length == 1 and .[0].is_running and .[0].is_ready == \"Ready\"'"
                   )
-                  machine.succeed(
-                      shell + retry_in_shell("bash -o pipefail -c " + shlex.quote(readiness)), timeout=900,
+                  machine.wait_until_succeeds(
+                      shell + "bash -o pipefail -c " + shlex.quote(readiness), timeout=900,
                   )
+                  factory_system, factory_profile = machine.succeed(remote(
+                      "readlink -f /run/current-system && "
+                      "readlink -f /nix/var/nix/profiles/system"
+                  ), timeout=120).splitlines()
+                  assert factory_system.startswith("/nix/store/"), factory_system
+                  assert factory_profile.startswith("/nix/store/"), factory_profile
                   machine.fail(remote("zfs list p1/my-app"), timeout=120)
                   machine.succeed(remote("zfs create -o mountpoint=/p1/keep-me p1/keep-me"), timeout=120)
 
@@ -90,40 +110,87 @@ top: {lib, ...}: {
                       "nix/machine/test-machine/configuration.nix && git add nix/machine/test-machine"
                   )
                   machine.succeed(shell + "deploy -s .#vm-test-machine -- -L", timeout=900)
-                  machine.succeed(remote("systemctl is-active my-app.service && zfs list p1/keep-me"))
-                  assert machine.succeed(remote("findmnt -n -o SOURCE /p1/my-app")).strip() == "p1/my-app"
-                  assert machine.succeed(remote("zfs get -H -o value compression p1/my-app")).strip() == "lz4"
+                  source, compression = machine.succeed(remote(
+                      "systemctl is-active my-app.service >/dev/null && "
+                      "zfs list p1/keep-me >/dev/null && "
+                      "findmnt -n -o SOURCE /p1/my-app && "
+                      "zfs get -H -o value compression p1/my-app"
+                  )).splitlines()
+                  assert source.strip() == "p1/my-app"
+                  assert compression.strip() == "lz4"
+                  deployed_system, deployed_profile = machine.succeed(remote(
+                      "readlink -f /run/current-system && "
+                      "readlink -f /nix/var/nix/profiles/system"
+                  ), timeout=120).splitlines()
+                  assert deployed_system.startswith("/nix/store/"), deployed_system
+                  assert deployed_profile.startswith("/nix/store/"), deployed_profile
+                  assert deployed_system != factory_system
+                  assert deployed_profile != factory_profile
 
               with subtest("write application data as its service user and a file on ephemeral root"):
-                  owner = machine.succeed(remote("id -u my-app")).strip()
-                  group = machine.succeed(remote("id -g my-app")).strip()
-                  for directory in ["/p1/my-app", "/var/lib/my-app"]:
-                      assert machine.succeed(remote(f"stat -c '%u %g %a' {directory}")).strip() == f"{owner} {group} 700"
+                  owner, group, dataset_permissions, state_permissions = machine.succeed(remote(
+                      "id -u my-app && id -g my-app && "
+                      "stat -c '%u %g %a' /p1/my-app && "
+                      "stat -c '%u %g %a' /var/lib/my-app"
+                  )).splitlines()
+                  owner, group = owner.strip(), group.strip()
+                  for permissions in [dataset_permissions, state_permissions]:
+                      assert permissions.strip() == f"{owner} {group} 700"
                   write_data = (
                       "printf 'dataset data' > /p1/my-app/data && "
                       "printf 'persistent state' > /var/lib/my-app/state"
                   )
-                  machine.succeed(remote("su -s /bin/sh my-app -c " + shlex.quote(write_data)))
-                  machine.succeed(remote("touch /root/ephemeral-root-test"))
-                  boot_id = machine.succeed(remote("cat /proc/sys/kernel/random/boot_id")).strip()
-                  machine_id = machine.succeed(remote("cat /etc/machine-id")).strip()
+                  boot_id, machine_id = machine.succeed(remote(
+                      "su -s /bin/sh my-app -c " + shlex.quote(write_data) + " && "
+                      "touch /root/ephemeral-root-test && "
+                      "cat /proc/sys/kernel/random/boot_id && cat /etc/machine-id"
+                  )).splitlines()
+                  boot_id, machine_id = boot_id.strip(), machine_id.strip()
                   assert boot_id and machine_id
 
               with subtest("reboot into a blank root while retaining application files and ownership"):
                   machine.succeed(remote("reboot"), timeout=120)
-                  machine.succeed(shell + retry_in_shell("ssh vm-test-machine " + shlex.quote(
+                  machine.wait_until_succeeds(remote(
                       "test \"$(cat /proc/sys/kernel/random/boot_id)\" != " + shlex.quote(boot_id)
                       + " && systemctl is-active my-app.service"
-                  )), timeout=900)
-                  machine.succeed(remote("test ! -e /root/ephemeral-root-test"))
-                  assert machine.succeed(remote("cat /p1/my-app/data")) == "dataset data"
-                  assert machine.succeed(remote("cat /var/lib/my-app/state")) == "persistent state"
-                  assert machine.succeed(remote("cat /persist/var/lib/my-app/state")) == "persistent state"
-                  assert machine.succeed(remote("id -u my-app")).strip() == owner
-                  assert machine.succeed(remote("id -g my-app")).strip() == group
-                  assert machine.succeed(remote("cat /etc/machine-id")).strip() == machine_id
-                  for path in ["/p1/my-app/data", "/var/lib/my-app/state"]:
-                      assert machine.succeed(remote(f"stat -c '%u %g' {path}")).strip() == f"{owner} {group}"
+                  ), timeout=900)
+                  # Remove only the final stat newline so file contents stay exact.
+                  (
+                      dataset_data, state_data, persisted_state,
+                      reboot_owner, reboot_group, reboot_machine_id,
+                      dataset_ownership, state_ownership,
+                  ) = machine.succeed(remote(
+                      "test ! -e /root/ephemeral-root-test && "
+                      "cat /p1/my-app/data && printf '\\n' && "
+                      "cat /var/lib/my-app/state && printf '\\n' && "
+                      "cat /persist/var/lib/my-app/state && printf '\\n' && "
+                      "id -u my-app && id -g my-app && cat /etc/machine-id && "
+                      "stat -c '%u %g' /p1/my-app/data && "
+                      "stat -c '%u %g' /var/lib/my-app/state"
+                  )).removesuffix("\n").split("\n")
+                  assert dataset_data == "dataset data"
+                  assert state_data == "persistent state"
+                  assert persisted_state == "persistent state"
+                  assert reboot_owner.strip() == owner
+                  assert reboot_group.strip() == group
+                  assert reboot_machine_id.strip() == machine_id
+                  for ownership in [dataset_ownership, state_ownership]:
+                      assert ownership.strip() == f"{owner} {group}"
+                  reboot_generation = machine.succeed(remote(
+                      "readlink -f /run/current-system && "
+                      "readlink -f /nix/var/nix/profiles/system && sync"
+                  ), timeout=120).splitlines()
+                  assert reboot_generation == [deployed_system, deployed_profile], reboot_generation
+
+              with subtest("stop the verified deployed guest before exporting its disks"):
+                  machine.succeed(shell + "idr process stop vm-test-machine", timeout=120)
+                  stopped = (
+                      "idr process get vm-test-machine -o json | "
+                      "jq -e 'length == 1 and (.[0].is_running | not)'"
+                  )
+                  machine.wait_until_succeeds(
+                      shell + "bash -o pipefail -c " + shlex.quote(stopped), timeout=120,
+                  )
           except Exception:
               if daemon_started:
                   print(machine.execute(shell + "idr process logs --tail 1000 vm-test-machine", timeout=120))
@@ -131,7 +198,43 @@ top: {lib, ...}: {
           finally:
               if daemon_started:
                   machine.succeed(shell + "idr down", timeout=120)
-                  machine.wait_until_fails(shell + "idr process get vm-test-machine -o json", timeout=60)
+                  machine.wait_until_succeeds(
+                      shell + "bash -c " + shlex.quote(
+                          "idr process get vm-test-machine -o json; status=$?; "
+                          'test "$status" -gt 0 && test "$status" -lt 124'
+                      ), timeout=60,
+                  )
+
+          with subtest("export the verified deployed predecessor for rollback consumers"):
+              # Consumers overlay these read-only disks; the archive carries only
+              # source and the host key needed to access the installed machine.
+              machine.succeed(
+                  "mkdir -p ${archiveDirectory}/images && "
+                  'cp --reflink=auto --sparse=always /root/project/.data/'
+                  '$(cat /etc/machine-id)/test-machine/qemu/*.qcow2 ${archiveDirectory}/images/',
+                  timeout=600,
+              )
+              machine.succeed(
+                  "find /root/project/.data -mindepth 1 -maxdepth 1 "
+                  "! -name machine-host-key -exec rm -rf {} +"
+              )
+              machine.succeed(
+                  "tar -C /root --exclude=project/.git --exclude=project/.direnv "
+                  "--sparse --sort=name --mtime=@0 --owner=1000 --group=1000 "
+                  "--numeric-owner -c project > ${archiveDirectory}/project.tar",
+                  timeout=600,
+              )
+              state = {
+                  "current_system": deployed_system,
+                  "system_profile": deployed_profile,
+                  "owner": owner,
+                  "group": group,
+                  "machine_id": machine_id,
+                  "dataset_data": dataset_data,
+                  "state_data": state_data,
+              }
+              machine.succeed("printf '%s\\n' " + shlex.quote(json.dumps(state))
+                  + " > ${archiveDirectory}/deployed-state.json")
         '';
       });
     };

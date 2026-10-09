@@ -3,6 +3,8 @@
 watch_file flake.nix flake.lock .env .envrc.local
 watch_dir nix
 
+export IDR_PROJECT_NAME={{ name | quote }}
+
 direnv_layout_dir() {
   local data_dir="${PRJ_DATA_DIR:-$PWD/.data}"
   local host_id=""

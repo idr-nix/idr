@@ -15,7 +15,8 @@ def prepare_certificates(role_module):
     machine.wait_for_unit("pebble.service")
     machine.wait_for_open_port(14000)
     operator("nix flake update team")
-    operator("nix develop -c idr-mk-role tls </dev/null")
+    operator("direnv allow")
+    operator("direnv exec . idr-mk-role tls </dev/null")
     role = "tls-" + json.loads(operator("cat nix/role/tls/meta.json"))["id"]
     operator(
         "sed -i '/networking.hostName =/a\\      idr.roles.\""
@@ -23,7 +24,7 @@ def prepare_certificates(role_module):
         + "\".enable = true;' nix/machine/test-machine/configuration.nix"
     )
     operator(
-        "nix develop -c bash -euo pipefail <<'COMMANDS'\n"
+        "direnv exec . bash -euo pipefail <<'COMMANDS'\n"
         "printf '%s' '{\"application_token\":\"synthetic application value\"}' | "
         "sops encrypt --input-type json --output-type yaml "
         "--filename-override nix/role/tls/certs.enc.yaml /dev/stdin > nix/role/tls/certs.enc.yaml\n"

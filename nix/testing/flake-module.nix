@@ -1,8 +1,18 @@
-top: {lib, ...}: {
+top: {lib, ...}: let
+  importTestModule = path: {
+    # Catalog consumers can import both base and its individual modules.
+    key = toString path;
+    imports = [(lib.modules.importApply path top)];
+  };
+in {
   flake.modules.nixosTest = {
-    nix = lib.modules.importApply ./nix.nix top;
-    nix-store = lib.modules.importApply ./nix-store.nix top;
-    operator = lib.modules.importApply ./operator.nix top;
-    ssh-git = lib.modules.importApply ./ssh-git.nix top;
+    base = importTestModule ./base.nix;
+    direnv = importTestModule ./direnv.nix;
+    disk-storage = importTestModule ./disk-storage.nix;
+    kvm-clock = importTestModule ./kvm-clock.nix;
+    nix = importTestModule ./nix.nix;
+    nix-store = importTestModule ./nix-store.nix;
+    operator = importTestModule ./operator.nix;
+    ssh-git = importTestModule ./ssh-git.nix;
   };
 }

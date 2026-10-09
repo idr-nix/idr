@@ -15,6 +15,7 @@ top: {lib, ...}: {
           (lib.modules.importApply ./local-vm-fixture.nix {inherit top project system;})
         ];
 
+        idr.test.direnv.offline = true;
         name = "local-vm-graphics";
         defaults = {pkgs, ...}: {
           services.dbus.enable = true;
@@ -36,17 +37,6 @@ top: {lib, ...}: {
         testScript = ''
           import shlex
 
-          # Repeated probes share one live devshell and retain their outer timeout.
-          def retry_in_shell(command):
-              return "bash -c " + shlex.quote("until " + command + "; do sleep 1; done")
-
-          def wait_for_stop_in_shell(command):
-              return "bash -c " + shlex.quote(
-                  "while true; do " + command + "; status=$?; "
-                  'case "$status" in 124|137) exit "$status";; esac; '
-                  'if test "$status" -ne 0; then break; fi; sleep 1; done'
-              )
-
           start_all()
           machine.wait_for_unit("idr-project-fixture.service", timeout=600)
           machine.wait_for_unit("idr-test-display.service")
@@ -58,7 +48,8 @@ top: {lib, ...}: {
               "ip -6 route show dev idr0 exact ${networkPrefix}::/48 | grep -q ."
           )
 
-          shell = "cd /root/project && nix --offline develop -c "
+          shell = "cd /root/project && direnv exec . "
+          machine.succeed("cd /root/project && direnv allow")
           machine.succeed(
               "sed -i '/networking.hostName =/a\\    idr.meta.preset.base.qemu.graphics = true;' "
               "/root/project/nix/machine/test-machine/configuration.nix"
@@ -69,13 +60,13 @@ top: {lib, ...}: {
               with subtest("enable graphics, enter the shell, and start the VM"):
                   machine.succeed(shell + "idr -D", timeout=600)
                   daemon_started = True
-                  machine.succeed(shell + "idr process start vm-test-machine", timeout=120)
                   readiness = (
                       "idr process get vm-test-machine -o json | "
                       "jq -e 'length == 1 and .[0].is_running and .[0].is_ready == \"Ready\"'"
                   )
-                  machine.succeed(
-                      shell + retry_in_shell("bash -o pipefail -c " + shlex.quote(readiness)), timeout=900,
+                  machine.succeed(shell + "idr process start vm-test-machine", timeout=120)
+                  machine.wait_until_succeeds(
+                      shell + "bash -o pipefail -c " + shlex.quote(readiness), timeout=900,
                   )
 
               with subtest("the running guest opens its actual QEMU graphical window"):
@@ -96,8 +87,11 @@ top: {lib, ...}: {
           finally:
               if daemon_started:
                   machine.succeed(shell + "idr down", timeout=120)
-                  machine.succeed(
-                      shell + wait_for_stop_in_shell("idr process get vm-test-machine -o json"), timeout=60,
+                  machine.wait_until_succeeds(
+                      shell + "bash -c " + shlex.quote(
+                          "idr process get vm-test-machine -o json; status=$?; "
+                          'test "$status" -gt 0 && test "$status" -lt 124'
+                      ), timeout=60,
                   )
         '';
       });

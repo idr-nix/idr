@@ -19,12 +19,12 @@ top: {lib, ...}: {
       inherit (pkgs.stdenv.hostPlatform) isLinux;
       inherit (config.node.pkgs.stdenv.hostPlatform) system;
     in {
-      imports = with top.self.modules.nixosTest; [nix nix-store operator];
+      imports = with top.self.modules.nixosTest; [base operator];
 
       name = "development-process-reconfigure";
       globalTimeout = 20 * 60;
 
-      idr.test.storePaths = [top.self.packages.${system}.default config.node.pkgs.python3];
+      idr.test.storePaths = [top.self.packages.${system}.default];
 
       defaults = {pkgs, ...}: {
         environment.systemPackages = [pkgs.curl];
@@ -65,9 +65,12 @@ top: {lib, ...}: {
       testScript = ''
         import shlex
 
+        def operator_command(command):
+            return "su - operator -c " + shlex.quote("cd project && " + command)
+
         def operator(command):
             return machine.succeed(
-                "su - operator -c " + shlex.quote("cd project && " + command),
+                operator_command(command),
                 timeout=900,
             )
 
@@ -84,23 +87,56 @@ top: {lib, ...}: {
         try:
             with subtest("start the documented server on its original port"):
                 operator("git add nix/local-docs/flake-module.nix")
-                operator("nix develop -c idr -D")
+                operator("direnv allow")
+                operator("direnv exec . idr -D")
                 daemon_started = True
                 server_responds(8080)
 
-            with subtest("reload edited process configuration by re-entering the shell and restarting IDR"):
+            with subtest("serve updates from the project's working directory"):
+                operator("printf 'Updated documentation\\n' > docs/index.html")
+                assert machine.succeed(
+                    "curl --fail --silent --show-error http://127.0.0.1:8080/"
+                ) == "Updated documentation\n"
+                operator("printf 'Project documentation\\n' > docs/index.html")
+
+            with subtest("follow two new requests with the same live logs command"):
+                follower_started = False
+                try:
+                    follow = "echo $$ > .data/docs-follow.pid; exec idr process logs -f docs-server"
+                    launch = (
+                        "nohup timeout --kill-after=5s 120 bash -c " + shlex.quote(follow)
+                        + " > .data/docs-follow.log 2>&1 </dev/null & echo $! > .data/docs-follow-timeout.pid"
+                    )
+                    operator("direnv exec . bash -c " + shlex.quote(launch))
+                    follower_started = True
+                    machine.wait_until_succeeds(operator_command("test -s .data/docs-follow.pid"), timeout=20)
+                    follower_pid = int(operator("cat .data/docs-follow.pid").strip())
+                    for request in ["log-follow-first", "log-follow-second"]:
+                        machine.succeed(
+                            "curl --fail --silent --show-error http://127.0.0.1:8080/?" + request
+                        )
+                        machine.wait_until_succeeds(operator_command(
+                            f"kill -0 {follower_pid} && grep -F "
+                            + shlex.quote("GET /?" + request + " HTTP/") + " .data/docs-follow.log"
+                        ), timeout=20)
+                finally:
+                    if follower_started:
+                        # Terminating timeout also stops the follower's process group.
+                        machine.execute(operator_command("kill $(cat .data/docs-follow-timeout.pid)"))
+
+            with subtest("reload edited process configuration automatically and restart IDR"):
                 operator("sed -i 's/8080/8081/g' nix/local-docs/flake-module.nix")
-                operator("nix develop -c idr down")
+                operator("direnv exec . idr down")
                 daemon_started = False
                 machine.wait_for_closed_port(8080, addr="127.0.0.1", timeout=60)
-                operator("nix develop -c idr -D")
+                operator("direnv exec . idr -D")
                 daemon_started = True
                 server_responds(8081)
                 machine.fail("curl --fail --silent --max-time 2 http://127.0.0.1:8080/")
         finally:
             if daemon_started:
                 with subtest("stop the reconfigured project"):
-                    operator("nix develop -c idr down")
+                    operator("direnv exec . idr down")
                     machine.wait_for_closed_port(8081, addr="127.0.0.1", timeout=60)
                     machine.wait_for_closed_port(8080, addr="127.0.0.1", timeout=60)
       '';

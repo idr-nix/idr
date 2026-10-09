@@ -35,7 +35,7 @@ top: {lib, ...}: {
       inherit (pkgs.stdenv.hostPlatform) isLinux;
       inherit (config.node.pkgs.stdenv.hostPlatform) system;
     in {
-      imports = with top.self.modules.nixosTest; [nix nix-store operator];
+      imports = with top.self.modules.nixosTest; [base operator];
 
       name = "project-ssh-config";
       globalTimeout = 20 * 60;
@@ -145,8 +145,8 @@ top: {lib, ...}: {
                 timeout=900,
             )
 
-        def ssh_config(filename):
-            output = operator("cat .data/" + filename)
+        def ssh_config(arguments):
+            output = operator("direnv exec . ssh -G " + arguments)
             return dict(line.split(" ", 1) for line in output.splitlines())
 
         start_all()
@@ -155,17 +155,14 @@ top: {lib, ...}: {
 
         with subtest("load the project settings and connect using the development shell's SSH command"):
             operator("git add nix/project-ssh/flake-module.nix")
-            operator("nix develop -c bash -ec " + shlex.quote(
-                "ssh -G build-host > .data/project-ssh-config\n"
-                'test "$(ssh build-host whoami)" = deploy\n'
-                "ssh -G -o HostName=192.0.2.50 -l operator -p 2223 build-host > .data/cli-ssh-config\n"
-                'test "$(ssh -l operator build-host whoami)" = operator\n'
-                'test "$(ssh user-host whoami)" = deploy\n'
-                'test "$(ssh system-host whoami)" = deploy\n'
-            ))
+            operator("direnv allow")
+            assert operator("direnv exec . ssh build-host whoami").strip() == "deploy"
+            assert operator("direnv exec . ssh -l operator build-host whoami").strip() == "operator"
+            assert operator("direnv exec . ssh user-host whoami").strip() == "deploy"
+            assert operator("direnv exec . ssh system-host whoami").strip() == "deploy"
 
         with subtest("project SSH settings take precedence over user and system configuration"):
-            settings = ssh_config("project-ssh-config")
+            settings = ssh_config("build-host")
             assert settings["hostname"] == "127.0.0.1", settings
             assert settings["user"] == "deploy", settings
             assert settings["port"] == "2222", settings
@@ -174,7 +171,7 @@ top: {lib, ...}: {
             assert "controlpath" not in settings, settings
 
         with subtest("command-line options take precedence over the project's SSH configuration"):
-            settings = ssh_config("cli-ssh-config")
+            settings = ssh_config("-o HostName=192.0.2.50 -l operator -p 2223 build-host")
             assert settings["hostname"] == "192.0.2.50", settings
             assert settings["user"] == "operator", settings
             assert settings["port"] == "2223", settings

@@ -11,7 +11,7 @@ top: {lib, ...}: {
         inherit (config.node.pkgs.stdenv.hostPlatform) system;
         machineId = top.self.nixosConfigurations."example-${system}".config.idr.preset.base.id;
       in {
-        imports = with top.self.modules.nixosTest; [nix nix-store operator];
+        imports = with top.self.modules.nixosTest; [base operator];
 
         # Darwin's build directory becomes part of the VM's Unix socket paths.
         # Keep this internal name short enough for its 104-byte socket limit.
@@ -74,13 +74,19 @@ top: {lib, ...}: {
           )
 
       def shell(directory, environment=""):
-          command = (
-              'printf "%s\\n" "$PRJ_ROOT" "$PRJ_DATA_DIR" "$PC_SOCKET_PATH" > /tmp/workspace-environment; '
-              "ssh -G vm-test-machine > /tmp/workspace-ssh-config"
+          operator(directory, "direnv allow")
+          # Cached shellHook reruns startup_env with these caller overrides.
+          command = environment + "direnv exec . "
+          root, data, socket = operator(
+              directory,
+              command + "bash -ec " + shlex.quote(
+                  'printf "%s\\n" "$PRJ_ROOT" "$PRJ_DATA_DIR" "$PC_SOCKET_PATH"'
+              ),
+          ).splitlines()
+          settings = dict(
+              line.split(" ", 1)
+              for line in operator(directory, command + "ssh -G vm-test-machine").splitlines()
           )
-          operator(directory, environment + "nix develop -c bash -ec " + shlex.quote(command))
-          root, data, socket = machine.succeed("cat /tmp/workspace-environment").splitlines()
-          settings = dict(line.split(" ", 1) for line in machine.succeed("cat /tmp/workspace-ssh-config").splitlines())
           return {
               "root": root,
               "data": data,

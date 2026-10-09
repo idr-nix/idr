@@ -15,6 +15,7 @@ top: {lib, ...}: {
           (lib.modules.importApply ./local-vm-fixture.nix {inherit top project system;})
         ];
 
+        idr.test.direnv.offline = true;
         name = "local-vm-workspaces";
 
         defaults.systemd.services.idr-project-fixture.script = lib.mkAfter ''
@@ -26,14 +27,22 @@ top: {lib, ...}: {
 
         testScript = ''
           import ipaddress
+          import json
+          import os
           import shlex
+
+          build_cores = int(os.environ.get("NIX_BUILD_CORES", "0"))
+          qemu_environment = ""
+          if build_cores > 0:
+              qemu_environment = (
+                  "env IDR_QEMU_EXTRA_OPTIONS_JSON="
+                  + shlex.quote(json.dumps(["-smp", str(build_cores)])) + " "
+              )
 
           def shell(directory, command):
               return (
-                  "cd /root/" + directory + " && "
-                  + "env IDR_QEMU_EXTRA_OPTIONS_JSON="
-                  + shlex.quote('["-m", "2048", "-smp", "2"]')
-                  + " nix --offline develop -c bash -o pipefail -ec "
+                  "cd /root/" + directory + " && direnv exec . "
+                  + qemu_environment + "bash -o pipefail -ec "
                   + shlex.quote(command)
               )
 
@@ -42,9 +51,7 @@ top: {lib, ...}: {
                   'idr process get vm-test-machine -o json | '
                   "jq -e 'length == 1 and .[0].is_running and .[0].is_ready == \"Ready\"'"
               )
-              machine.succeed(shell(directory,
-                  "until bash -o pipefail -c " + shlex.quote(predicate) + "; do sleep 1; done"
-              ), timeout=900)
+              machine.wait_until_succeeds(shell(directory, predicate), timeout=900)
 
           start_all()
           machine.wait_for_unit("idr-project-fixture.service", timeout=600)
@@ -53,6 +60,7 @@ top: {lib, ...}: {
           try:
               with subtest("start the same machine in the main checkout and linked worktree"):
                   for directory in ("project", "project-local"):
+                      machine.succeed("cd /root/" + directory + " && direnv allow")
                       machine.succeed(shell(directory, "idr -D"), timeout=600)
                       started.append(directory)
                       machine.succeed(shell(directory, "idr process start vm-test-machine"), timeout=120)
@@ -63,16 +71,13 @@ top: {lib, ...}: {
                   addresses = []
                   boot_ids = []
                   for directory in started:
-                      machine.succeed(shell(directory,
-                          "ssh -G vm-test-machine > /tmp/" + directory + "-ssh-config; "
+                      lines = machine.succeed(shell(directory,
+                          "ssh -G vm-test-machine; "
                           + "ssh vm-test-machine " + shlex.quote("echo " + directory + " > /persist/idr-workspace-test; cat /proc/sys/kernel/random/boot_id")
-                          + " > /tmp/" + directory + "-boot-id"
-                      ), timeout=120)
-                      settings = dict(line.split(" ", 1) for line in machine.succeed(
-                          "cat /tmp/" + directory + "-ssh-config"
-                      ).splitlines())
+                      ), timeout=120).splitlines()
+                      boot_ids.append(lines.pop().strip())
+                      settings = dict(line.split(" ", 1) for line in lines)
                       addresses.append(ipaddress.IPv6Address(settings["hostname"]))
-                      boot_ids.append(machine.succeed("cat /tmp/" + directory + "-boot-id").strip())
                   assert addresses[0] != addresses[1], addresses
                   assert boot_ids[0] and boot_ids[1] and boot_ids[0] != boot_ids[1], boot_ids
                   for directory in started:
@@ -87,9 +92,14 @@ top: {lib, ...}: {
               with subtest("stopping one workspace leaves the other VM running"):
                   machine.succeed(shell("project", "idr down"), timeout=120)
                   started.remove("project")
-                  machine.wait_until_fails(shell("project", "idr process get vm-test-machine -o json"), timeout=60)
+                  machine.wait_until_succeeds(shell("project",
+                      "if idr process get vm-test-machine -o json; then exit 1; else status=$?; fi; "
+                      'test "$status" -lt 124'
+                  ), timeout=60)
                   ready("project-local")
-                  assert machine.succeed(shell("project-local", "ssh vm-test-machine cat /persist/idr-workspace-test"), timeout=120).strip() == "project-local"
+                  assert machine.succeed(shell("project-local",
+                      "ssh vm-test-machine cat /persist/idr-workspace-test"
+                  ), timeout=120).strip() == "project-local"
           finally:
               for directory in started:
                   machine.succeed(shell(directory, "idr down"), timeout=120)

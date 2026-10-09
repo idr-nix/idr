@@ -4,6 +4,7 @@
   system,
   cachedImages ? true,
   restoreProject ? true,
+  useBackingImages ? false,
 }: let
   networkPrefix = top.self.nixosConfigurations."example-${system}".config.idr.qemu.networkPrefix;
 in
@@ -17,7 +18,7 @@ in
       then "/run/idr-project-archive"
       else toString project;
   in {
-    imports = [(lib.modules.importApply ./nested-qemu-fixture.nix {})] ++ (with top.self.modules.nixosTest; [nix nix-store]);
+    imports = [(lib.modules.importApply ./nested-qemu-fixture.nix {})] ++ (with top.self.modules.nixosTest; [base]);
 
     globalTimeout = 30 * 60;
     requiredFeatures.devnet = hostPkgs.stdenv.hostPlatform.isLinux;
@@ -76,7 +77,7 @@ in
         description = "Restore the project and cached VM images";
         wantedBy = ["multi-user.target"];
         after = ["systemd-tmpfiles-setup.service"];
-        path = [pkgs.coreutils pkgs.gnutar pkgs.gitMinimal];
+        path = [pkgs.coreutils pkgs.gnutar pkgs.gitMinimal] ++ lib.optional useBackingImages pkgs.qemu;
         serviceConfig = {
           Type = "oneshot";
           RemainAfterExit = true;
@@ -89,7 +90,18 @@ in
           ${lib.optionalString cachedImages ''
             image_cache="project/.data/$(cat /etc/machine-id)/test-machine"
             mkdir -p "$image_cache" project/.data/image-references
-            mv project/.data/images "$image_cache/qemu"
+            ${
+              if useBackingImages
+              then ''
+                mkdir -p "$image_cache/qemu"
+                for image in ${projectDirectory}/images/*.qcow2; do
+                  qemu-img create -f qcow2 -F qcow2 -b "$image" "$image_cache/qemu/$(basename "$image")"
+                done
+              ''
+              else ''
+                mv project/.data/images "$image_cache/qemu"
+              ''
+            }
             for image in "$image_cache/qemu"/*.qcow2; do
               ln "$image" project/.data/image-references/
             done

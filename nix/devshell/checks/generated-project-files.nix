@@ -31,7 +31,7 @@ top: {lib, ...}: {
       inherit (pkgs.stdenv.hostPlatform) isLinux;
       inherit (config.node.pkgs.stdenv.hostPlatform) system;
     in {
-      imports = with top.self.modules.nixosTest; [nix nix-store operator];
+      imports = with top.self.modules.nixosTest; [base operator];
 
       name = "generated-project-files";
       globalTimeout = 20 * 60;
@@ -75,6 +75,13 @@ top: {lib, ...}: {
 
       testScript = ''
         import json
+        import shlex
+
+        def operator(command):
+            return machine.succeed(
+                "su - operator -c " + shlex.quote("cd project && " + command),
+                timeout=900,
+            )
 
         def assert_generated_files():
             machine.succeed(
@@ -91,22 +98,18 @@ top: {lib, ...}: {
 
         start_all()
         machine.wait_for_unit("idr-project-fixture.service")
+        operator("direnv allow")
 
         with subtest("generate a store symlink and a copied JSON file following the documentation"):
-            machine.succeed(
-                "su - operator -c 'cd project && git add nix/project-files/flake-module.nix && "
-                "nix develop -c true'",
-                timeout=900,
-            )
+            operator("git add nix/project-files/flake-module.nix")
+            operator("direnv exec . true")
             assert_generated_files()
 
         with subtest("restore missing and modified files on the next shell entry"):
-            machine.succeed(
-                "su - operator -c 'cd project && rm .editorconfig && "
-                "chmod u+w .config/example-app.json && "
-                "printf modified > .config/example-app.json && nix develop -c true'",
-                timeout=900,
-            )
+            operator("rm .editorconfig")
+            operator("chmod u+w .config/example-app.json")
+            operator("printf modified > .config/example-app.json")
+            operator("direnv exec . true")
             assert_generated_files()
       '';
     });

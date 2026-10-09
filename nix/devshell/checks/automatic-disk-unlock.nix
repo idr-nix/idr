@@ -39,7 +39,10 @@ top: {lib, ...}: {
           };
         };
       in {
-        imports = [(lib.modules.importApply ../../testing/arm-image-builder.nix {})];
+        imports = [
+          (lib.modules.importApply ../../testing/arm-image-builder.nix {})
+          top.self.modules.nixosTest.disk-storage
+        ];
         name = "automatic-disk-unlock";
         globalTimeout = 10 * 60;
         defaults = {
