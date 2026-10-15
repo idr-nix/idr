@@ -223,7 +223,8 @@ in {
       else poolDevice;
     blockUnit = "${utils.escapeSystemdPath blockDevice}.device";
   in {
-    imports = [top.self.modules.nixos.microvm top.self.modules.nixos.preset top.self.modules.nixos.sops];
+    imports = [top.self.modules.nixos.microvm top.self.modules.nixos.preset top.self.modules.nixos.sops top.self.modules.nixos.qemu-host];
+    idr.qemu-host.enable = lib.mkIf (scenario == "deployment") true;
     idr.preset.base.defaultSopsFile = builtins.toFile "host-metadata.json" (builtins.toJSON {
       ssh_host_ed25519_key_age_pub_unencrypted = "age1rqz9lhprtuea2rglxfuuvgkccyzar25ta66gsea2mg86kuspcqdshcehps";
       ssh_host_ed25519_key_pub_unencrypted = keys.snakeOilEd25519PublicKey;
@@ -456,7 +457,11 @@ in {
       host.wait_until_succeeds(ssh("systemctl is-active multi-user.target"))
       assert host.succeed("stat -Lc %a ${config.nodes.host.idr.microvm.vms.worker.disks.system.path}").strip() == "600"
       assert host.succeed("stat -c %a /run/idr-microvm-worker/private").strip() == "700"
-      host.fail("test -e /run/wrappers/bin/qemu-bridge-helper")
+      if "${scenario}" == "deployment":
+          host.succeed("test -x /run/wrappers/bin/qemu-bridge-helper && test ! -u /run/wrappers/bin/qemu-bridge-helper")
+          assert "cap_net_admin" in host.succeed("${pkgs.libcap.out}/bin/getcap /run/wrappers/bin/qemu-bridge-helper")
+      else:
+          host.fail("test -e /run/wrappers/bin/qemu-bridge-helper")
       boot_id = host.succeed(ssh("cat /proc/sys/kernel/random/boot_id")).strip()
       host.succeed(ssh("test -d /sys/firmware/efi && systemctl is-active earlyoom systemd-modules-load.service"))
     ''

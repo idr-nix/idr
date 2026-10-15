@@ -72,7 +72,7 @@ in
         etc."ssh/ssh_config".mode = "0644";
       };
 
-      # The build sandbox cannot elevate a regular user through a setuid bridge helper.
+      # The build sandbox cannot elevate a regular user through a privileged bridge helper.
       systemd.services.idr-project-fixture = {
         description = "Restore the project and cached VM images";
         wantedBy = ["multi-user.target"];

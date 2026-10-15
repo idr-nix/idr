@@ -39,7 +39,8 @@ top: {
     environment.etc."qemu/bridge.conf".text = "allow idr0";
 
     security.wrappers.qemu-bridge-helper = {
-      setuid = true;
+      enable = true;
+      capabilities = lib.mkDefault "cap_net_admin+ep";
       owner = "root";
       group = "root";
       source = lib.mkDefault "${pkgs.qemu}/libexec/qemu-bridge-helper";

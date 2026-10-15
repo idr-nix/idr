@@ -54,6 +54,8 @@ top: {lib, ...}: {
         start_all()
         machine.wait_for_unit("idr-project-fixture.service", timeout=600)
         machine.wait_for_unit("systemd-networkd.service")
+        machine.succeed("test -x /run/wrappers/bin/qemu-bridge-helper && test ! -u /run/wrappers/bin/qemu-bridge-helper")
+        assert "cap_net_admin" in machine.succeed("${pkgs.libcap.out}/bin/getcap /run/wrappers/bin/qemu-bridge-helper")
         machine.wait_until_succeeds(
             "ip -6 address show dev idr0 to ${networkPrefix}::1/128 | grep -q inet6"
         )
