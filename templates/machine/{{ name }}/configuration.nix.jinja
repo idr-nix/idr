@@ -24,10 +24,12 @@ top: {
         inherit (top) inputs;
         id = "{{ id }}";
         defaultSopsFile = ./secrets.enc.json;
+{% if template == 'machine' %}
         preFormatFiles."/disk-key.txt" = {
           sopsFile = ./disk-key.enc.json;
           key = "disk_key";
         };
+{% endif %}
       };
     }
   ];

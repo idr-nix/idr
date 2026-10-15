@@ -19,15 +19,44 @@ in {
     ...
   }: let
     settings = config.pre-commit.settings;
-    closure = pkgs.closureInfo {
-      rootPaths = [settings.configFile settings.package settings.gitPackage pkgs.bash pkgs.nushell] ++ settings.enabledPackages;
-    };
     install = pkgs.writeShellScript "idr-install-git-hooks" ''
-      exec ${pkgs.python3}/bin/python ${./install.py} \
-        ${lib.getExe settings.gitPackage} \
-        ${pkgs.writeShellScript "pre-commit-shellhook" config.pre-commit.shellHook} \
-        ${lib.escapeShellArg settings.configPath} ${settings.configFile} \
-        ${closure}/store-paths ${./launcher.nu} ${pkgs.nushell}/bin/nu
+      set -euo pipefail
+      hooks="$(${lib.getExe settings.gitPackage} rev-parse --path-format=absolute --git-common-dir)/hooks"
+      configured="$(${lib.getExe settings.gitPackage} config --get core.hooksPath || true)"
+      if [[ -n $configured && $configured != .git/hooks && $configured != "$hooks" ]]; then
+        exit 0
+      fi
+      # A linked worktree inherits the main checkout's relative hook path.
+      if [[ $configured == .git/hooks ]]; then
+        ${lib.getExe settings.gitPackage} config --local core.hooksPath "$hooks"
+      fi
+
+      # Restore native hooks before upstream can preserve an IDR launcher as
+      # .legacy. This also preserves hooks using a user-owned configuration.
+      reinstall=false
+      for hook in "$hooks"/*; do
+        [[ -f $hook && ! -L $hook && ''${hook##*/} != *.* ]] || continue
+        if ${lib.getExe pkgs.gnugrep} -qxF '# idr-git-hook-launcher-v1' "$hook"; then
+          payload="$(${pkgs.gnused}/bin/sed -n 's/^# idr-git-hook-payload: //p' "$hook")"
+          if [[ $payload != "''${hook##*/}.idr-"* || $payload == */* || ! -f $hooks/$payload || -L $hooks/$payload ]]; then
+            echo "idr: cannot restore the saved native Git hook for $hook" >&2
+            exit 1
+          fi
+          mv -f -- "$hooks/$payload" "$hook"
+          rm -f -- "$hook".idr-*
+          reinstall=true
+        fi
+      done
+      if $reinstall && [[ -L ${lib.escapeShellArg settings.configPath} ]]; then
+        rm -- ${lib.escapeShellArg settings.configPath}
+      fi
+      (
+        ${config.pre-commit.shellHook}
+      )
+      # Upstream writes a relative path when installing from the main checkout.
+      if [[ $(${lib.getExe settings.gitPackage} config --get core.hooksPath) == .git/hooks ]]; then
+        ${lib.getExe settings.gitPackage} config --local core.hooksPath "$hooks"
+      fi
     '';
   in {
     pre-commit = {

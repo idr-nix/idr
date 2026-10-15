@@ -20,7 +20,7 @@ in {
       lib.mkAfter ["/run/idr-qemu-ssh/%u"]
     );
     boot.initrd.systemd = lib.mkIf config.boot.initrd.systemd.enable {
-      network.enable = true;
+      network.enable = lib.mkDefault true;
       services.idr-qemu-network = services.network;
       services.sshd = lib.mkIf config.boot.initrd.network.ssh.enable {
         unitConfig = {

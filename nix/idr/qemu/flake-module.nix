@@ -241,7 +241,7 @@ top: {
         && lib.any (machine: machine.pkgs.stdenv.hostPlatform.system != hostLinuxSystem) (builtins.attrValues imageConfigurations)
       ) [hostLinuxPkgs.pkgsStatic.qemu-user];
 
-    devshells.default.idr.sshConfig = lib.concatStringsSep "\n" (lib.mapAttrsToList (name: machine: let
+    legacyPackages.idrQemuSshConfig = lib.concatStringsSep "\n" (lib.mapAttrsToList (name: machine: let
         cfg = machine.config;
         machineId = lib.concatStringsSep ":" (lib.genList (i: builtins.substring (i * 4) 4 cfg.idr.preset.base.id) 3);
       in ''

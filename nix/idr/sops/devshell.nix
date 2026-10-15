@@ -3,13 +3,15 @@ top: {
   pkgs,
   config,
   idrSsh,
+  idrNu,
   ...
 }: let
   scripts = ../../scripts;
 
-  idr-generate-ssh-key = pkgs.writers.writePython3Bin "idr-generate-ssh-key" {
-    libraries = [pkgs.python3Packages.cryptography];
-  } (builtins.readFile (scripts + /idr-generate-ssh-key.py));
+  idr-generate-ssh-key = pkgs.writers.makeScriptWriter {
+    interpreter = "${lib.getExe idrNu} --no-config-file";
+    makeWrapperArgs = ["--prefix" "PATH" ":" (lib.makeBinPath [pkgs.coreutils pkgs.openssh])];
+  } "/bin/idr-generate-ssh-key" (builtins.readFile (scripts + /idr-generate-ssh-key.nu));
 
   idr-rotate-keys =
     pkgs.writers.writeNuBin "idr-rotate-keys" {
@@ -41,6 +43,7 @@ top: {
     name = "idr-setup-machine";
     runtimeInputs = with pkgs; [nushell mkpasswd];
     text = ''
+      export IDR_PATH="${top.self}"
       exec nu -n --no-std-lib --no-history ${scripts}/idr-setup-machine.nu "$@"
     '';
   };

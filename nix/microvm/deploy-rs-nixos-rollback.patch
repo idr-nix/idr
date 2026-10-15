@@ -1,0 +1,22 @@
+diff --git a/src/bin/activate.rs b/src/bin/activate.rs
+--- a/src/bin/activate.rs
++++ b/src/bin/activate.rs
+@@ -231,7 +231,17 @@ pub async fn deactivate(profile_path: &str) -> Result<(), DeactivateError> {
+ 
+     info!("Attempting to re-activate the last generation");
+ 
+-    let mut re_activate_command = Command::new(format!("{}/deploy-rs-activate", profile_path));
++    let deploy_activate = Path::new(profile_path).join("deploy-rs-activate");
++    let mut re_activate_command = if deploy_activate.exists() {
++        Command::new(deploy_activate)
++    } else {
++        // A generation installed by nixos-rebuild has no deploy-rs wrapper.
++        // Restore its running configuration as well as its system profile.
++        let mut command =
++            Command::new(Path::new(profile_path).join("bin/switch-to-configuration"));
++        command.arg("switch");
++        command
++    };
+     re_activate_command
+         .env("PROFILE", profile_path)
+         .current_dir(profile_path);

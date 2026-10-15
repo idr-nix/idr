@@ -25,6 +25,12 @@ top: {
         let options = $env.SSH_OPTS? | default ""
         $"[($options)]" | from nuon
       }
+      # Preserve explicit caller trust settings, including disk-unlock verification.
+      let options = if ($args | any {|arg| ($arg | describe) == 'string' and $arg =~ '(?i)^(-o)?UserKnownHostsFile[=\s]' }) {
+        $options | where {|arg| ($arg | describe) != 'string' or $arg !~ '(?i)^-oUserKnownHostsFile[=\s]' }
+      } else {
+        $options
+      }
       exec ${pkgs.openssh}/bin/ssh ...$options ...$args
     }
   '';
@@ -74,6 +80,7 @@ top: {
     name = "idr-mk-machine";
     runtimeInputs = with pkgs; [nushell copier];
     text = ''
+      export IDR_PATH="${top.self}"
       export TEMPLATES_DIR=${lib.escapeShellArg cfg.templatesDir}
       export IDR_NIXOS_RELEASE=${lib.escapeShellArg cfg.nixosRelease}
       exec nu -n --no-std-lib --no-history ${scripts}/idr-mk-machine.nu "$@"

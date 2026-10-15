@@ -35,7 +35,7 @@ is another option.
 
 ### Persistent data
 
-The generated disk layout resets the root filesystem on every boot, using
+The default machine template resets the root filesystem on every boot, using
 `idr.preset.impermanence.rootDataset = "p1/local/root"`. Files that must survive
 a reboot are stored under `/persist` or on separately mounted persistent
 filesystems.
@@ -73,9 +73,13 @@ The service must define the `my-app` user and group. To use a persistence
 directory other than `/persist`, set `idr.preset.impermanence.persistDir` and
 configure its filesystem too.
 
-IDR's root-reset module requires ZFS. With another root filesystem, disable
-`idr.preset.impermanence.enable` and configure persistence and root reset
-separately, for example with tmpfs and `environment.persistence`.
+For Btrfs, set `idr.preset.impermanence.rootSubvolume` to the top-level subvolume
+mounted at `/`, such as `@root`. It is recreated at boot. Keep `/nix` and the
+persistence directory on separate subvolumes or filesystems.
+The [microVM template](../../docs/microvm.md) configures this layout automatically.
+
+With other root filesystems, disable `idr.preset.impermanence.enable` and
+configure persistence and root reset separately.
 
 ### Additional local addresses
 

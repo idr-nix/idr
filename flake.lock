@@ -17,6 +17,23 @@
         "type": "github"
       }
     },
+    "cloud-hypervisor-src": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1791549776,
+        "narHash": "sha256-oBmp25WOkhMWwxRRIwdWSNWWiLhJYyoeQ6+sKQPDmfI=",
+        "ref": "refs/heads/main",
+        "rev": "36225ee3230fa263f0b03a6ba12a42b0f3ec8f91",
+        "shallow": true,
+        "type": "git",
+        "url": "https://github.com/cloud-hypervisor/cloud-hypervisor"
+      },
+      "original": {
+        "shallow": true,
+        "type": "git",
+        "url": "https://github.com/cloud-hypervisor/cloud-hypervisor"
+      }
+    },
     "deploy-rs": {
       "inputs": {
         "flake-compat": "flake-compat",
@@ -307,6 +324,23 @@
         "url": "ssh://git@github.com/nix-community/home-manager"
       }
     },
+    "hypeman-src": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1791403671,
+        "narHash": "sha256-TRvcBDTELQ9p36WB8GK278dKVPDgYkj/tgVb9OYdWtY=",
+        "ref": "refs/heads/main",
+        "rev": "6875fedf151b10f9da1406b7b418992bba018dfc",
+        "shallow": true,
+        "type": "git",
+        "url": "https://github.com/kernel/hypeman"
+      },
+      "original": {
+        "shallow": true,
+        "type": "git",
+        "url": "https://github.com/kernel/hypeman"
+      }
+    },
     "impermanence": {
       "inputs": {
         "home-manager": [
@@ -329,6 +363,28 @@
         "shallow": true,
         "type": "git",
         "url": "ssh://git@github.com/nix-community/impermanence"
+      }
+    },
+    "microvm": {
+      "inputs": {
+        "nixpkgs": [
+          "nixpkgs"
+        ],
+        "spectrum": "spectrum"
+      },
+      "locked": {
+        "lastModified": 1791289136,
+        "narHash": "sha256-CpbGI/6cFX1ZCz5kK+C0XlVBsCWXXfgyexIeM8hjZzY=",
+        "ref": "refs/heads/main",
+        "rev": "52860fa190bdecfe4a837de09b7f9e7babed4871",
+        "shallow": true,
+        "type": "git",
+        "url": "https://github.com/microvm-nix/microvm.nix"
+      },
+      "original": {
+        "shallow": true,
+        "type": "git",
+        "url": "https://github.com/microvm-nix/microvm.nix"
       }
     },
     "nixos-images": {
@@ -468,6 +524,7 @@
     },
     "root": {
       "inputs": {
+        "cloud-hypervisor-src": "cloud-hypervisor-src",
         "deploy-rs": "deploy-rs",
         "determinate-nix": "determinate-nix",
         "devshell": "devshell",
@@ -476,7 +533,9 @@
         "flake-parts": "flake-parts_2",
         "git-hooks-nix": "git-hooks-nix_2",
         "home-manager": "home-manager",
+        "hypeman-src": "hypeman-src",
         "impermanence": "impermanence",
+        "microvm": "microvm",
         "nixos-images": "nixos-images",
         "nixpkgs": "nixpkgs_2",
         "nixpkgs-unstable": "nixpkgs-unstable",
@@ -522,6 +581,22 @@
         "shallow": true,
         "type": "git",
         "url": "ssh://git@github.com/Mic92/sops-nix"
+      }
+    },
+    "spectrum": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1786032750,
+        "narHash": "sha256-+Ba/kIn5BjvV7PN8bWOo7RoqgTY/Yv2M7qeMf3wS2Ag=",
+        "ref": "refs/heads/main",
+        "rev": "77d2389874bb092b8dbf05ecc5b1030372e80e98",
+        "revCount": 1417,
+        "type": "git",
+        "url": "https://spectrum-os.org/git/spectrum"
+      },
+      "original": {
+        "type": "git",
+        "url": "https://spectrum-os.org/git/spectrum"
       }
     },
     "systems": {

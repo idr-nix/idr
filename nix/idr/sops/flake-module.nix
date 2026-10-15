@@ -146,6 +146,13 @@ in {
     idr.roleDirs = ["nix/role"];
     idr.machineDirs = ["nix/machine"];
     idr.sops.creation_rules = let
+      machineRecipient = machine: let
+        name = machine.config.networking.hostName or "<unnamed>";
+        file = machine.config.idr.preset.base.defaultSopsFile or null;
+        secrets = lib.optionalAttrs (file != null && lib.hasSuffix ".json" file) (lib.importJSON file);
+      in
+        secrets.ssh_host_ed25519_key_age_pub_unencrypted
+        or (throw "SOPS recipient machine ${name} must have ssh_host_ed25519_key_age_pub_unencrypted in its idr.preset.base.defaultSopsFile.");
       subDirectories = dirs:
         lib.concatMap
         (dir:
@@ -181,13 +188,15 @@ in {
                 top.self.lib.team);
             in
               lib.optional hasConfig {
-                recipients =
+                recipients = lib.unique (
                   recipients
+                  ++ map machineRecipient (cfg.idr.preset.base.sopsRecipientMachines or [])
                   ++ (
                     lib.optional
                     (sops ? ssh_host_ed25519_key_age_pub_unencrypted)
                     sops.ssh_host_ed25519_key_age_pub_unencrypted
-                  );
+                  )
+                );
                 path_regex = "^${prefix}\\/.*\\.enc\\.(json|yaml|bin)$";
                 diskKeyPathRegex = "^${prefix}\\/disk-key\\.enc\\.json$";
                 roles =

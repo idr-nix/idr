@@ -4,6 +4,15 @@ system:
   type: str
   default: x86_64-linux
   when: false
+template:
+  type: str
+  default: machine
+  choices: [machine, microvm]
+  when: false
+ipv4_address:
+  type: str
+  default: ""
+  when: false
 state_version:
   type: str
   default: "{{ '$IDR_NIXOS_RELEASE' | expandvars }}"
@@ -42,6 +51,6 @@ _skip_if_exists:
   - "{{ name }}/secrets.enc.json"
   - "{{ name }}/disk-key.enc.json"
 _tasks:
-  - chmod 0600 flake-module.nix {{ name }}/{flake-module,configuration,hardware-specific}.nix {{ name }}/{secrets,disk-key}.enc.json
-  - git add flake-module.nix {{ name }}/{flake-module,configuration,hardware-specific}.nix {{ name }}/{secrets,disk-key}.enc.json
-  - idr-setup-machine {{ name }}
+  - chmod 0600 flake-module.nix {{ name }}/{flake-module,configuration,hardware-specific}.nix {{ name }}/secrets.enc.json{% if template == 'machine' %} {{ name }}/disk-key.enc.json{% endif %}
+  - git add flake-module.nix {{ name }}/{flake-module,configuration,hardware-specific}.nix {{ name }}/secrets.enc.json{% if template == 'machine' %} {{ name }}/disk-key.enc.json{% endif %}
+  - idr-setup-machine{% if template == 'microvm' %} --no-disk-key{% endif %} {{ name }}

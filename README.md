@@ -104,6 +104,7 @@ and run `nix run "git+ssh://git@github.com/idr-nix/idr" -- idr-mk-project .`
 - [Certificates](./nix/certs/README.md)
 - [Backups](./nix/backup/README.md)
 - [Local VMs](./docs/local-vms.md)
+- [microVMs](./docs/microvm.md)
 - [Local networking and workspaces](./docs/local-networking.md)
 - [Development services](./docs/development-services.md)
 - [Runtime secrets](./nix/secrets/README.md)

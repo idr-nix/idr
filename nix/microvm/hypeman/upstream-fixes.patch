@@ -1,0 +1,183 @@
+diff --git a/lib/guestmemory/planner.go b/lib/guestmemory/planner.go
+index 55550a0..8acf143 100644
+--- a/lib/guestmemory/planner.go
++++ b/lib/guestmemory/planner.go
+@@ -1,6 +1,10 @@
+ package guestmemory
+ 
+-import "github.com/kernel/hypeman/lib/hypervisor"
++import (
++	"math/bits"
++
++	"github.com/kernel/hypeman/lib/hypervisor"
++)
+ 
+ type candidateState struct {
+ 	vm                      BalloonVM
+@@ -32,7 +36,11 @@ func planGuestTargets(cfg ActiveBallooningConfig, candidates []candidateState, t
+ 
+ 	remainder := totalReclaim
+ 	for _, candidate := range candidates {
+-		reclaim := (totalReclaim * candidate.maxReclaimBytes) / totalHeadroom
++		// Byte counts can overflow int64 when multiplied even for small VMs.
++		// The quotient fits because totalReclaim <= totalHeadroom.
++		hi, lo := bits.Mul64(uint64(totalReclaim), uint64(candidate.maxReclaimBytes))
++		share, _ := bits.Div64(hi, lo, uint64(totalHeadroom))
++		reclaim := int64(share)
+ 		if reclaim > candidate.maxReclaimBytes {
+ 			reclaim = candidate.maxReclaimBytes
+ 		}
+@@ -88,7 +96,7 @@ func automaticTargetBytes(state HostPressureState, cfg ActiveBallooningConfig, s
+ 	lowWatermarkBytes := (sample.TotalBytes * int64(cfg.PressureLowWatermarkAvailablePercent)) / 100
+ 	needed := lowWatermarkBytes - sample.AvailableBytes
+ 	if needed > 0 {
+-		return needed
++		return currentTotalReclaim + needed
+ 	}
+ 	if sample.Stressed {
+ 		return currentTotalReclaim
+diff --git a/lib/hypervisor/balloon_target_cache.go b/lib/hypervisor/balloon_target_cache.go
+index ccfd43a..0d9a49d 100644
+--- a/lib/hypervisor/balloon_target_cache.go
++++ b/lib/hypervisor/balloon_target_cache.go
+@@ -30,14 +30,6 @@ func (c *BalloonTargetCache) Load(socketPath string) (int64, bool) {
+ 		return value, true
+ 	}
+ 
+-	if indexedKey, ok := c.keys.Load(socketPath); ok {
+-		if keyString, ok := indexedKey.(string); ok {
+-			if value, ok := c.loadKey(keyString); ok {
+-				return value, true
+-			}
+-		}
+-	}
+-
+ 	value, ok := loadBalloonTargetState(socketPath, key)
+ 	if !ok {
+ 		return 0, false
+diff --git a/lib/hypervisor/cloudhypervisor/cloudhypervisor.go b/lib/hypervisor/cloudhypervisor/cloudhypervisor.go
+index 6b3b4a7..76875cd 100644
+--- a/lib/hypervisor/cloudhypervisor/cloudhypervisor.go
++++ b/lib/hypervisor/cloudhypervisor/cloudhypervisor.go
+@@ -293,7 +293,13 @@ func (c *CloudHypervisor) GetTargetGuestMemoryBytes(ctx context.Context) (int64,
+ }
+ 
+ func assignedGuestMemoryBytes(info *vmm.VmInfo) int64 {
+-	assigned := info.Config.Memory.Size
++	memory := info.Config.Memory
++	assigned := memory.Size
++	// For flat memory, actual size can lag a requested balloon target. Adding
++	// that target to actual size would incorrectly change the assigned RAM.
++	if memory.HotplugSize == nil && memory.HotpluggedSize == nil && memory.Zones == nil {
++		return assigned
++	}
+ 	if info.MemoryActualSize != nil && info.Config.Balloon != nil {
+ 		assigned = *info.MemoryActualSize + info.Config.Balloon.Size
+ 	}
+diff --git a/lib/vmm/client.go b/lib/vmm/client.go
+--- a/lib/vmm/client.go
++++ b/lib/vmm/client.go
+@@ -24,6 +24,10 @@ import (
+ 
+ const cloudHypervisorSocketReadyTimeout = 10 * time.Second
+ 
++// DefaultHTTPTimeout bounds each API request. Set it before creating clients.
++// Controllers can use a shorter deadline than VM lifecycle operations.
++var DefaultHTTPTimeout = 120 * time.Second
++
+ const (
+ 	cloudHypervisorStartRetryDelay    = 100 * time.Millisecond
+ 	cloudHypervisorStartRetryAttempts = 20
+@@ -99,6 +103,6 @@ func NewVMM(socketPath string) (*VMM, error) {
+ 	transport := &http.Transport{
+ 		DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
+-			return net.Dial("unix", socketPath)
++			return (&net.Dialer{}).DialContext(ctx, "unix", socketPath)
+ 		},
+ 		// Disable keep-alives to prevent connection leaks.
+ 		// Each NewVMM call creates a new transport, so connection pooling
+@@ -109,7 +113,7 @@ func NewVMM(socketPath string) (*VMM, error) {
+ 
+ 	httpClient := &http.Client{
+ 		Transport: &metricsRoundTripper{base: transport, tracer: otel.Tracer("hypeman/vmm")},
+-		Timeout:   120 * time.Second,
++		Timeout:   DefaultHTTPTimeout,
+ 	}
+ 
+ 	client, err := NewClientWithResponses("http://localhost/api/v1",
+diff --git a/lib/vmm/vmm.go b/lib/vmm/vmm.go
+index 9af7586..cacdf8d 100644
+--- a/lib/vmm/vmm.go
++++ b/lib/vmm/vmm.go
+@@ -63,7 +63,7 @@ type BalloonConfig struct {
+ // ConsoleConfig defines model for ConsoleConfig.
+ type ConsoleConfig struct {
+ 	File   *string           `json:"file,omitempty"`
+-	Iommu  *bool             `json:"iommu,omitempty"`
++	Iommu  any               `json:"iommu,omitempty"`
+ 	Mode   ConsoleConfigMode `json:"mode"`
+ 	Socket *string           `json:"socket,omitempty"`
+ }
+@@ -115,7 +115,7 @@ type DebugConsoleConfigMode string
+ // DeviceConfig defines model for DeviceConfig.
+ type DeviceConfig struct {
+ 	Id                 *string `json:"id,omitempty"`
+-	Iommu              *bool   `json:"iommu,omitempty"`
++	Iommu              any     `json:"iommu,omitempty"`
+ 	Path               string  `json:"path"`
+ 	PciSegment         *int16  `json:"pci_segment,omitempty"`
+ 	XNvGpudirectClique *int8   `json:"x_nv_gpudirect_clique,omitempty"`
+@@ -135,7 +135,7 @@ type DiskConfig struct {
+ 	Direct         *bool                `json:"direct,omitempty"`
+ 	Id             *string              `json:"id,omitempty"`
+ 	ImageType      *DiskConfigImageType `json:"image_type,omitempty"`
+-	Iommu          *bool                `json:"iommu,omitempty"`
++	Iommu          any                  `json:"iommu,omitempty"`
+ 	NumQueues      *int                 `json:"num_queues,omitempty"`
+ 	Path           *string              `json:"path,omitempty"`
+ 	PciSegment     *int16               `json:"pci_segment,omitempty"`
+@@ -205,7 +205,7 @@ type MemoryZoneConfig struct {
+ type NetConfig struct {
+ 	HostMac *string `json:"host_mac,omitempty"`
+ 	Id      *string `json:"id,omitempty"`
+-	Iommu   *bool   `json:"iommu,omitempty"`
++	Iommu   any     `json:"iommu,omitempty"`
+ 
+ 	// Ip IPv4 or IPv6 address
+ 	Ip  *string `json:"ip,omitempty"`
+@@ -285,7 +285,7 @@ type PmemConfig struct {
+ 	DiscardWrites *bool   `json:"discard_writes,omitempty"`
+ 	File          string  `json:"file"`
+ 	Id            *string `json:"id,omitempty"`
+-	Iommu         *bool   `json:"iommu,omitempty"`
++	Iommu         any     `json:"iommu,omitempty"`
+ 	PciSegment    *int16  `json:"pci_segment,omitempty"`
+ 	Size          *int64  `json:"size,omitempty"`
+ }
+@@ -320,7 +320,7 @@ type RestoreConfig struct {
+ 
+ // RngConfig defines model for RngConfig.
+ type RngConfig struct {
+-	Iommu *bool  `json:"iommu,omitempty"`
++	Iommu any    `json:"iommu,omitempty"`
+ 	Src   string `json:"src"`
+ }
+ 
+@@ -350,7 +350,7 @@ type TpmConfig struct {
+ // VdpaConfig defines model for VdpaConfig.
+ type VdpaConfig struct {
+ 	Id         *string `json:"id,omitempty"`
+-	Iommu      *bool   `json:"iommu,omitempty"`
++	Iommu      any     `json:"iommu,omitempty"`
+ 	NumQueues  int     `json:"num_queues"`
+ 	Path       string  `json:"path"`
+ 	PciSegment *int16  `json:"pci_segment,omitempty"`
+@@ -467,7 +467,7 @@ type VsockConfig struct {
+ 	// Cid Guest Vsock CID
+ 	Cid        int64   `json:"cid"`
+ 	Id         *string `json:"id,omitempty"`
+-	Iommu      *bool   `json:"iommu,omitempty"`
++	Iommu      any     `json:"iommu,omitempty"`
+ 	PciSegment *int16  `json:"pci_segment,omitempty"`
+ 
+ 	// Socket Path to UNIX domain socket, used to proxy vsock connections.

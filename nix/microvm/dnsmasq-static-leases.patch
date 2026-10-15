@@ -1,0 +1,61 @@
+--- a/src/rfc3315.c
++++ b/src/rfc3315.c
+@@ -635,6 +635,34 @@
+     }
+   
+ 
++  /* Static-only networks must not let client-supplied DUID/IAID values
++     release or decline another client's configured reservation. Validate
++     every IAADDR before any lease is pruned or marked as declined. */
++  if (msg_type == DHCP6RELEASE || msg_type == DHCP6DECLINE)
++    {
++      for (context_tmp = state->context; context_tmp; context_tmp = context_tmp->current)
++        if (!(context_tmp->flags & CONTEXT_STATIC))
++          break;
++
++      if (state->context && !context_tmp)
++        for (opt = state->packet_options; opt; opt = opt6_next(opt, state->end))
++          {
++            void *ia_option, *ia_end;
++
++            for (check_ia(state, opt, &ia_end, &ia_option);
++                 ia_option;
++                 ia_option = opt6_find(opt6_next(ia_option, ia_end), ia_end, OPTION6_IAADDR, 24))
++              {
++                struct in6_addr addr;
++
++                memcpy(&addr, opt6_ptr(ia_option, 0), IN6ADDRSZ);
++                context_tmp = address6_valid(state->context, &addr, tagif, 1);
++                if (!context_tmp || !config_implies(config, context_tmp, &addr))
++                  return 0;
++              }
++          }
++    }
++
+   switch (msg_type)
+     {
+     default:
+@@ -972,6 +1000,23 @@
+ 
+ 		memcpy(&req_addr, opt6_ptr(ia_option, 0), IN6ADDRSZ); 
+ 		
++                /* Validate static reservations before looking up a lease by
++                   DUID/IAID, or allocating one for an authoritative REBIND.
++                   Return zero lifetimes so stale clients can reconfigure. */
++                if (!address6_available(state->context, &req_addr, tagif, 1) &&
++                    (!(this_context = address6_valid(state->context, &req_addr, tagif, 1)) ||
++                     ((this_context->flags & CONTEXT_STATIC) &&
++                      !config_implies(config, this_context, &req_addr))))
++                  {
++                    log6_packet(state, "DHCPREPLY", &req_addr, _("address invalid"));
++                    o1 = new_opt6(OPTION6_IAADDR);
++                    put_opt6(&req_addr, IN6ADDRSZ);
++                    put_opt6_long(0);
++                    put_opt6_long(0);
++                    end_opt6(o1);
++                    continue;
++                  }
++
+ 		if (!(lease = lease6_find(state->clid, state->clid_len,
+ 					  state->ia_type == OPTION6_IA_NA ? LEASE_NA : LEASE_TA, 
+ 					  state->iaid, &req_addr)))

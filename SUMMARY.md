@@ -12,6 +12,8 @@
 - [Certificates](./nix/certs/README.md)
 - [Backups](./nix/backup/README.md)
 - [Local VMs](./docs/local-vms.md)
+- [microVMs](./docs/microvm.md)
+  - [MicroVM recovery](./docs/microvm-recovery.md)
 - [Local networking and workspaces](./docs/local-networking.md)
   - [NixOS QEMU host](./nix/qemu-host/README.md)
 - [Development services](./docs/development-services.md)

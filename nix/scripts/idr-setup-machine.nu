@@ -1,4 +1,5 @@
 def main [
+  --no-disk-key # Skip the disk encryption key for an unencrypted machine template.
   machine_name: string
 ] {
   if "PRJ_ROOT" not-in $env {
@@ -7,6 +8,7 @@ def main [
   }
 
   cd $env.PRJ_ROOT
+  let idr_args = if $env.IDR_PATH? != null { ["--override-input" "idr" $env.IDR_PATH] } else { [] }
 
   if not ($env.PRJ_ROOT | path join "nix/machine" $machine_name | path exists) {
     print "Machine configuration does not exists"
@@ -39,7 +41,7 @@ def main [
         | save -f $secrets_path
       git add $secrets_path
       # Regenerate .sops.yaml
-      nix --offline -L develop -c true
+      nix --offline -L develop --no-write-lock-file ...$idr_args -c true
       try {
         sops --encrypt --in-place $secrets_path
         do --capture-errors { sops --decrypt $secrets_path } | ignore
@@ -85,7 +87,7 @@ def main [
     sops --in-place --set $"[("root_password" | to json --raw)] ($root_password | to json --raw)" $secrets_path
   }
 
-  if not ($disk_key_path | path exists) or "disk_key" not-in (open $disk_key_path) {
+  if not $no_disk_key and (not ($disk_key_path | path exists) or "disk_key" not-in (open $disk_key_path)) {
     let disk_key = random chars --length 64
     let encrypted = {
       disk_key: $disk_key
@@ -96,5 +98,5 @@ def main [
   }
 
   # Regenerate .sops.yaml
-  nix --offline -L develop -c true
+  nix --offline -L develop --no-write-lock-file ...$idr_args -c true
 }

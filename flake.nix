@@ -115,6 +115,21 @@
       };
     };
 
+    microvm = {
+      url = "git+https://github.com/microvm-nix/microvm.nix?shallow=1";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
+
+    cloud-hypervisor-src = {
+      url = "git+https://github.com/cloud-hypervisor/cloud-hypervisor?shallow=1";
+      flake = false;
+    };
+
+    hypeman-src = {
+      url = "git+https://github.com/kernel/hypeman?shallow=1";
+      flake = false;
+    };
+
     home-manager = {
       url = "git+ssh://git@github.com/nix-community/home-manager?shallow=1&ref=release-26.05";
       inputs = {

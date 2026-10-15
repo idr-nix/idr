@@ -175,6 +175,8 @@ top: {lib, ...}: {
             assert settings["hostname"] == "192.0.2.50", settings
             assert settings["user"] == "operator", settings
             assert settings["port"] == "2223", settings
+            assert ssh_config("build-host printf 123 true")["hostname"] == "127.0.0.1"
+            assert ssh_config("-p 2222 -o UserKnownHostsFile=/dev/null build-host")["userknownhostsfile"] == "/dev/null"
       '';
     });
   };

@@ -3,10 +3,37 @@ top: moduleArgs @ {
   options,
   pkgs,
   lib,
+  utils,
   ...
 }: let
   cfg = config.idr.preset;
+  root = config.fileSystems."/" or {};
+  rootDevice = root.device or null;
+  rootSubvolume = cfg.impermanence.rootSubvolume;
+  outsideRoot = mountpoint: let
+    filesystem = config.fileSystems.${mountpoint} or {};
+    subvolumes = map (lib.removePrefix "subvol=") (builtins.filter (lib.hasPrefix "subvol=") (filesystem.options or []));
+  in
+    mountpoint
+    != "/"
+    && (filesystem.device or null) != null
+    && (
+      filesystem.device
+      != rootDevice
+      || (
+        rootSubvolume
+        != null
+        && filesystem.fsType == "btrfs"
+        && lib.any (subvolume: let
+          name = lib.removePrefix "/" subvolume;
+        in
+          name != rootSubvolume && !(lib.hasPrefix "${rootSubvolume}/" name))
+        subvolumes
+      )
+    );
 in {
+  key = toString ./impermanence.nix;
+
   options.idr.preset.impermanence = {
     enable = lib.mkOption {
       description = ''
@@ -17,7 +44,7 @@ in {
           (2) deploy via `nixos-rebuild boot`, (3) reboot.
       '';
       type = lib.types.bool;
-      default = cfg.impermanence.rootDataset != null;
+      default = cfg.impermanence.rootDataset != null || rootSubvolume != null;
     };
     persistDir = lib.mkOption {
       description = ''
@@ -34,6 +61,15 @@ in {
       default = null;
       example = "p1/local/root";
     };
+    rootSubvolume = lib.mkOption {
+      description = ''
+        Top-level Btrfs subvolume mounted at /, deleted and recreated on every
+        boot. Keep /nix and persistDir on separate filesystems or subvolumes.
+      '';
+      type = lib.types.nullOr (lib.types.strMatching "[A-Za-z0-9_@+][A-Za-z0-9_@+.-]*");
+      default = null;
+      example = "@root";
+    };
   };
 
   config = lib.mkIf cfg.impermanence.enable (lib.mkMerge [
@@ -48,8 +84,8 @@ in {
           message = "impermanence module must be imported.";
         }
         {
-          assertion = cfg.impermanence.rootDataset != null;
-          message = "idr.preset.impermanence.enable requires idr.preset.impermanence.rootDataset to be set.";
+          assertion = (cfg.impermanence.rootDataset != null) != (rootSubvolume != null);
+          message = "idr.preset.impermanence.enable requires exactly one of rootDataset or rootSubvolume.";
         }
       ];
     }
@@ -75,6 +111,55 @@ in {
       };
 
       boot.initrd.systemd.enable = true;
+    })
+
+    (lib.mkIf (rootSubvolume != null) {
+      assertions = [
+        {
+          assertion =
+            (root.fsType or null)
+            == "btrfs"
+            && rootDevice != null
+            && lib.hasPrefix "/dev/" rootDevice
+            && lib.any (option: builtins.elem option ["subvol=${rootSubvolume}" "subvol=/${rootSubvolume}"]) (root.options or []);
+          message = "idr.preset.impermanence.rootSubvolume must match the Btrfs root filesystem and use a /dev/ device path.";
+        }
+        {
+          assertion = outsideRoot "/nix" && outsideRoot cfg.impermanence.persistDir;
+          message = "Btrfs impermanence requires /nix and persistDir on filesystems or subvolumes outside rootSubvolume.";
+        }
+      ];
+
+      boot.initrd.systemd.services.initrd-rollback-root = let
+        deviceUnit = "${utils.escapeSystemdPath rootDevice}.device";
+      in {
+        description = "Reset the Btrfs root subvolume";
+        requires = [deviceUnit];
+        after = [deviceUnit];
+        requiredBy = ["sysroot.mount"];
+        before = ["sysroot.mount"];
+        unitConfig.DefaultDependencies = false;
+        path = [pkgs.btrfs-progs pkgs.coreutils pkgs.util-linuxMinimal];
+        serviceConfig = {
+          Type = "oneshot";
+          RemainAfterExit = true;
+        };
+        script = ''
+          set -euo pipefail
+          mountpoint=/run/idr-impermanence-root
+          mkdir -p "$mountpoint"
+          mount -t btrfs -o subvolid=5 ${lib.escapeShellArg rootDevice} "$mountpoint"
+          trap 'umount "$mountpoint"; rmdir "$mountpoint"' EXIT
+          root="$mountpoint"/${lib.escapeShellArg rootSubvolume}
+          if [[ -e "$root" ]]; then
+            btrfs subvolume delete --recursive --commit-after "$root"
+          fi
+          btrfs subvolume create "$root"
+        '';
+      };
+    })
+
+    (lib.mkIf (cfg.impermanence.rootDataset != null) {
       boot.initrd.systemd.extraBin = {
         "chattr" = "${pkgs.e2fsprogs}/bin/chattr";
         "jq" = "${pkgs.jq}/bin/jq";

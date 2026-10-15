@@ -20,6 +20,12 @@ top: args @ {
     ...
   }: let
     scripts = ../../scripts;
+    sshConfigTemplate = import ../deploy/ssh-config.nix {
+      inherit lib;
+      deploy = args.config.flake.deploy;
+      projectConfig = config.devshells.default.idr.sshConfig;
+      extraConfig = self'.legacyPackages.idrQemuSshConfig;
+    };
     sshTemplatePath = ".data/ssh/${system}.template";
     sshTemplate = pkgs.writeText "idr-ssh-config.template" (
       ''
@@ -29,13 +35,7 @@ top: args @ {
           UserKnownHostsFile "''${PRJ_DATA_DIR}/@AGENT_PREFIX@.known_hosts" ~/.ssh/known_hosts ~/.ssh/known_hosts2
 
       ''
-      + config.devshells.default.idr.sshConfig
-      + ''
-
-        Host *
-          Include ~/.ssh/config
-          Include /etc/ssh/ssh_config
-      ''
+      + sshConfigTemplate.text
     );
     sshConfig =
       pkgs.writers.writeNuBin "idr-ssh-config" {

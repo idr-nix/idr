@@ -74,11 +74,43 @@ top: {lib, ...}: {
             operator("direnv exec . true")
             operator("test -x .git/hooks/pre-commit")
 
+        with subtest("shell entry replaces old IDR launchers without losing a user hook"):
+            launcher = "#!/bin/sh\n# idr-git-hook-launcher-v1\n# idr-git-hook-payload: pre-commit.idr-old\nexit 99\n"
+            legacy = "#!/bin/sh\nprintf '%s\\n' ran > /home/operator/legacy-hook-ran\n"
+            operator("cp .git/hooks/pre-commit .git/hooks/pre-commit.idr-old")
+            operator("printf %s " + shlex.quote(launcher) + " > .git/hooks/pre-commit")
+            operator("printf %s 'old launcher' > .git/hooks/pre-commit.idr-launcher.nu")
+            operator("printf %s " + shlex.quote(legacy) + " > .git/hooks/pre-commit.legacy && chmod +x .git/hooks/pre-commit.legacy")
+            operator("nix develop -c true")
+            operator("test -x .git/hooks/pre-commit && test ! -e .git/hooks/pre-commit.idr-old && test ! -e .git/hooks/pre-commit.idr-launcher.nu")
+            assert "idr-git-hook-launcher" not in operator("cat .git/hooks/pre-commit")
+            assert operator("cat .git/hooks/pre-commit.legacy") == legacy
+
+        with subtest("shell entry respects a custom hooksPath even when installation is needed"):
+            operator("git config core.hooksPath /dev/null && rm .pre-commit-config.yaml")
+            operator("nix develop -c true")
+            assert operator("git config --get core.hooksPath").strip() == "/dev/null"
+            operator("test ! -e .pre-commit-config.yaml")
+            operator("git config --unset core.hooksPath && nix develop -c true")
+            operator("test -L .pre-commit-config.yaml && test -x .git/hooks/pre-commit")
+
+        with subtest("migration preserves a regular user-owned hook configuration"):
+            configuration = operator("cat .pre-commit-config.yaml")
+            native_hook = operator("cat .git/hooks/pre-commit")
+            operator("cp .git/hooks/pre-commit .git/hooks/pre-commit.idr-old")
+            operator("printf %s " + shlex.quote(launcher) + " > .git/hooks/pre-commit")
+            operator("rm .pre-commit-config.yaml && printf %s " + shlex.quote(configuration) + " > .pre-commit-config.yaml")
+            operator("nix develop -c true")
+            operator("test ! -L .pre-commit-config.yaml && test -x .git/hooks/pre-commit")
+            assert operator("cat .pre-commit-config.yaml") == configuration
+            assert operator("cat .git/hooks/pre-commit") == native_hook
+
         with subtest("a real commit runs the installed hook and requires staging its formatting changes"):
             previous = operator("git rev-parse HEAD").strip()
             operator("printf '{ value=2; }\\n' > format-example.nix && git add format-example.nix")
             output = operator("direnv exec . git commit -m 'Change value' 2>&1", succeeds=False)
             assert "alejandra" in output.lower(), output
+            assert operator("cat /home/operator/legacy-hook-ran").strip() == "ran"
             assert operator("git rev-parse HEAD").strip() == previous
             assert "value = 2;" in operator("cat format-example.nix")
             operator("git diff --exit-code -- format-example.nix", succeeds=False)

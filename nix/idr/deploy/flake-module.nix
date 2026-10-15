@@ -1,8 +1,16 @@
 top: {
   lib,
   config,
+  getSystem,
   ...
-}: {
+}: let
+  sshConfigFor = system:
+    import ./ssh-config.nix {
+      inherit lib;
+      deploy = config.flake.deploy;
+      projectConfig = (getSystem system).devshells.default.idr.sshConfig;
+    };
+in {
   options.flake.deploy = lib.mkOption {
     type = lib.types.attrsOf lib.types.anything;
     description = ''
@@ -19,7 +27,18 @@ top: {
       inherit (machine) pkgs;
       inherit (pkgs.stdenv.hostPlatform) system;
       inherit (machine.config.system) build;
-      activation = top.inputs.deploy-rs.lib.${system}.activate.nixos machine;
+      sshConfig = sshConfigFor system;
+      isMicroVM = machine.config.idr.microvmGuest.enable or false;
+      guestAddress = machine.config.idr.microvmGuest.network.ipv4Address or null;
+      baseActivation = top.inputs.deploy-rs.lib.${system}.activate.nixos machine;
+      activation =
+        if isMicroVM
+        then
+          import ./microvm-activation.nix {
+            inherit lib pkgs machine;
+            activation = baseActivation;
+          }
+        else baseActivation;
       profiles = qemuProcess: {
         system = {
           user = lib.mkDefault "root";
@@ -40,7 +59,12 @@ top: {
     in
       {
         ${name} = {
-          hostname = lib.mkDefault machine.config.networking.hostName;
+          hostname = lib.mkDefault (
+            if isMicroVM && guestAddress != null
+            then guestAddress
+            else machine.config.networking.hostName
+          );
+          sshOpts = lib.mkDefault (lib.optionals (!sshConfig.hasPackagePaths) ["-F" sshConfig.common]);
           profiles = profiles null;
         };
       }

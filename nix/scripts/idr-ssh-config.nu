@@ -15,7 +15,9 @@ def main [template: path, --ssh-opts] {
     $config | save-atomic $config_path
   }
   if $ssh_opts {
-    $"-F ($config_path | to nuon)"
+    let known_hosts = $env.PRJ_DATA_DIR | path join $"(host-socket-prefix 'ssh').known_hosts" | path expand
+    let known_hosts_option = $"-oUserKnownHostsFile=($known_hosts | to json --raw) ~/.ssh/known_hosts ~/.ssh/known_hosts2"
+    ["-F" $config_path $known_hosts_option] | each { to nuon } | str join " "
   } else {
     $config_path
   }

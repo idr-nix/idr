@@ -1,3 +1,14 @@
+{% if template == 'microvm' %}
+top: {...}: {
+  idr.microvmGuest = {
+    enable = true;
+    network.ipv4Address = "{{ ipv4_address }}";
+    diskSizeMiB = 64 * 1024;
+    # Enable when the host assigns an NVIDIA GPU to this machine.
+    nvidia.enable = false;
+  };
+}
+{% else %}
 top: moduleArgs @ {
   pkgs,
   lib,
@@ -235,3 +246,4 @@ in {
     };
   };
 }
+{% endif %}

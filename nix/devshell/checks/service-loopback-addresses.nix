@@ -1,19 +1,17 @@
 top: {lib, ...}: {
   perSystem = {pkgs, ...}: let
+    inherit (pkgs.stdenv.hostPlatform) isLinux;
     addresses = lib.genAttrs ["first" "second"] (name: top.idr-lib.mkLocalIPv6 "docs-port-${name}");
   in {
     checks.service-loopback-addresses = pkgs.testers.runNixOSTest {
       imports = [top.self.modules.nixosTest.disk-storage];
       name = "service-loopback-addresses";
+      requiredFeatures.kvm = false;
 
-      nodes.machine = {pkgs, ...}: {
+      defaults = {pkgs, ...}: {
         imports = builtins.attrValues top.self.modules.nixos;
         _module.args.inputs = top.inputs;
 
-        virtualisation = {
-          memorySize = 1024;
-          cores = 2;
-        };
         networking.useDHCP = false;
         environment.systemPackages = [pkgs.curl];
 
@@ -41,6 +39,16 @@ top: {lib, ...}: {
         systemd.services.nginx = {
           wants = ["network-online.target"];
           after = ["network-online.target"];
+        };
+      };
+
+      containers = lib.optionalAttrs isLinux {
+        machine.networking.useHostResolvConf = false;
+      };
+      nodes = lib.optionalAttrs (!isLinux) {
+        machine.virtualisation = {
+          memorySize = 1024;
+          cores = 2;
         };
       };
 

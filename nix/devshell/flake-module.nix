@@ -43,6 +43,7 @@ top: {flake-parts-lib, ...}: {
     ./checks/mk-role.nix
     ./checks/external-role-secrets.nix
     ./checks/mk-module.nix
+    ./checks/microvm.nix
     ./checks/development-shell-tools.nix
     ./checks/devshell-partial-secret-access.nix
     ./checks/devshell-reload.nix

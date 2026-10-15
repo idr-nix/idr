@@ -74,6 +74,20 @@ in {
       type = lib.types.nullOr lib.types.path;
       default = null;
     };
+    sopsRecipientMachines = lib.mkOption {
+      description = ''
+        Machines that may decrypt this machine's secrets and enabled roles in
+        this repository. Uses the public age key from each machine's
+        defaultSopsFile, following SSH host key rotation automatically.
+
+        For MicroVM guests, these machines' SSH host keys also authorize root
+        access through the management socket by default. Override
+        idr.microvmGuest.deployment.authorizedKeys to choose different SSH keys.
+      '';
+      type = lib.types.listOf lib.types.raw;
+      default = [];
+      example = lib.literalExpression "[ top.self.nixosConfigurations.host ]";
+    };
   };
 
   config = lib.mkIf cfg.base.enable {

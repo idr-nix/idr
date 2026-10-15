@@ -21,6 +21,11 @@ top: {lib, ...}: {
       }
       for kind, (path, fields) in files.items():
           decrypted = json.loads(subprocess.check_output(["sops", "decrypt", path]))
+          for field in ("ssh_host_ed25519_key", "initrd_ssh_host_ed25519_key"):
+              if field in decrypted:
+                  assert decrypted[field].startswith("-----BEGIN OPENSSH PRIVATE KEY-----")
+                  public = subprocess.check_output(["ssh-keygen", "-y", "-P", "", "-f", "/dev/stdin"], input=decrypted[field].encode())
+                  assert public.decode().split()[:2] == decrypted[field + "_pub_unencrypted"].split()[:2]
           result[kind] = {
               field: hashlib.sha256(decrypted[field].encode()).hexdigest()
               for field in fields
@@ -123,7 +128,9 @@ top: {lib, ...}: {
             operator(
                 "direnv exec . bash -euo pipefail <<'COMMANDS'\n"
                 "python ${snapshot} > /tmp/rotation-before.json\n"
-                "idr-rotate-keys --force test-machine\n"
+                "mkdir -m 0700 /tmp/idr-keygen-tmp\n"
+                "TMPDIR=/tmp/idr-keygen-tmp idr-rotate-keys --force test-machine\n"
+                "test -z \"$(ls -A /tmp/idr-keygen-tmp)\"\n"
                 "python ${snapshot} > /tmp/rotation-after.json\n"
                 "sops decrypt --extract '[\"ssh_host_ed25519_key\"]' "
                 "nix/machine/test-machine/secrets.enc.json | ssh-to-age -private-key > ~/.config/idr/new-host.age\n"
