@@ -195,6 +195,13 @@ top: {
   in
     lib.mkMerge [
       skipInLocalVM
+      # Protect VM processes and filesystem helpers from host OOM killers.
+      (lib.genAttrs [serviceName "microvm-virtiofsd@${instanceName}"] (_: {
+        serviceConfig = {
+          OOMScoreAdjust = lib.mkDefault (-1000);
+          ManagedOOMPreference = lib.mkDefault "omit";
+        };
+      }))
       (lib.optionalAttrs (deployment != null) {
         "${unitName}-deploy" = deployment.service;
       })
