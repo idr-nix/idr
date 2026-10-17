@@ -18,6 +18,27 @@ in {
   };
 
   config = lib.mkIf (builtins.length cfg.loopback.addresses > 0) {
+    networking.nftables = {
+      enable = true;
+      tables.idr-loopback = {
+        family = "inet";
+        content = ''
+          chain input {
+            type filter hook input priority filter - 20; policy accept;
+            ${lib.concatMapStringsSep "\n" (address: let
+            # Assignment prefixes must not protect unrelated addresses in the subnet.
+            host = builtins.head (lib.splitString "/" address);
+            family =
+              if lib.hasInfix ":" host
+              then "ip6"
+              else "ip";
+          in ''iifname != "lo" ${family} daddr ${host} counter drop'')
+          cfg.loopback.addresses}
+          }
+        '';
+      };
+    };
+
     systemd.network.enable = true;
     systemd.network.netdevs = {
       "10-idr-lo" = {
