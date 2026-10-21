@@ -290,7 +290,7 @@ def install-plan [manifest: record, plan: record, images: record] {
       let pending = $"($disk.dataset)-installing"
       let pool = $disk.dataset | split row "/" | first
       if $current.interrupted { checked zfs destroy $pending | ignore }
-      (checked zfs create -V ($image.size | into string)
+      (checked zfs create -s -V ($image.size | into string)
         -o volmode=dev
         -o $"compression=($disk.compression)"
         -o $"primarycache=($disk.primarycache)"
