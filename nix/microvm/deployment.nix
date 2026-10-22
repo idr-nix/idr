@@ -62,10 +62,10 @@
   stageFiles =
     pkgs.writers.writeNuBin "${unitName}-copy-extra-files" {
       makeWrapperArgs = ["--prefix" "PATH" ":" (lib.makeBinPath [pkgs.coreutils pkgs.openssh pkgs.sops])];
-    } ''
-      use ${../scripts/idr-common.nu} [with-disko-files]
-      source ${./deployment.nu}
-    '';
+    } (''
+        use ${../scripts/idr-common.nu} [with-disko-files]
+      ''
+      + builtins.readFile ./deployment.nu);
   workerConfig = pkgs.writeText "${unitName}-connection.json" (builtins.toJSON {
     state_dir = stateDirectory;
     target = unitName;

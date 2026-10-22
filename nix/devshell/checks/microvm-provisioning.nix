@@ -1,9 +1,9 @@
 {lib, ...}: {
   perSystem = {pkgs, ...}: let
-    provision = pkgs.writeText "microvm-provision-test.nu" ''
-      use ${../../scripts/idr-common.nu} [with-disko-files]
-      source ${../../microvm/provision.nu}
-    '';
+    provision = pkgs.writeText "microvm-provision-test.nu" (''
+        use ${../../scripts/idr-common.nu} [with-disko-files]
+      ''
+      + builtins.readFile ../../microvm/provision.nu);
     builder = pkgs.writeShellScript "microvm-test-image-builder" ''
       set -e
       echo build >> "$BUILDER_CALLED"

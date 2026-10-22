@@ -160,7 +160,15 @@ in {
       description = "Local gRPC proxies, exposed at <name>.etcd.internal:65535.";
       type = types.attrsOf (types.submodule {
         options = {
-          inherit package endpoints caCert;
+          inherit endpoints caCert;
+          package =
+            package
+            // {
+              default = pkgs.etcd.deps.etcdserver.overrideAttrs (old: {
+                patches = (old.patches or []) ++ [./grpc-proxy-disable-kv-cache.patch];
+              });
+              defaultText = "pkgs.etcd.deps.etcdserver with the temporary KV cache workaround";
+            };
           enable = mkOption {
             type = types.bool;
             default = true;

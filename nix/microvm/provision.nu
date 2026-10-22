@@ -1,4 +1,4 @@
-# The wrapper imports IDR's with-disko-files before sourcing this file.
+# The wrapper imports IDR's with-disko-files.
 
 def --wrapped checked [...arguments: string] {
   let result = run-external ...$arguments | complete
