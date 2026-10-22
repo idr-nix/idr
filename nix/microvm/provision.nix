@@ -24,10 +24,10 @@
       hostIdIsBigEndian = metadata.hostIdIsBigEndian or false;
     };
   });
-  script = pkgs.writeText "${unitName}-provision.nu" ''
-    use ${../scripts/idr-common.nu} [with-disko-files]
-    source ${./provision.nu}
-  '';
+  script = pkgs.writeText "${unitName}-provision.nu" (''
+      use ${../scripts/idr-common.nu} [with-disko-files]
+    ''
+    + builtins.readFile ./provision.nu);
 in
   pkgs.writeShellApplication {
     name = "${unitName}-provision";

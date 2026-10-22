@@ -1,0 +1,35 @@
+Temporary workaround for https://github.com/etcd-io/etcd/issues/22065.
+
+Disable only the gRPC proxy KV response cache so the upstream server checks
+authorization on every read. Preserve request consistency and the existing
+proxy transport. Remove after an upstream fix passes the IDR regressions.
+
+--- a/server/proxy/grpcproxy/kv.go
++++ b/server/proxy/grpcproxy/kv.go
+@@ -28,10 +28,25 @@
+ 	cache cache.Cache
+ }
+ 
++// disabledCache makes all KV reads reach upstream authorization, including reads
++// whose responses would otherwise have been cached by transactions.
++// Remove once https://github.com/etcd-io/etcd/issues/22065 is fixed and tested.
++type disabledCache struct{}
++
++func (disabledCache) Get(*pb.RangeRequest) (*pb.RangeResponse, error) {
++	return nil, errors.New("KV proxy cache disabled")
++}
++
++func (disabledCache) Add(*pb.RangeRequest, *pb.RangeResponse) {}
++func (disabledCache) Invalidate([]byte, []byte)               {}
++func (disabledCache) Compact(int64)                           {}
++func (disabledCache) Size() int                               { return 0 }
++func (disabledCache) Close()                                  {}
++
+ func NewKvProxy(c *clientv3.Client) (pb.KVServer, <-chan struct{}) {
+ 	kv := &kvProxy{
+ 		kv:    c.KV,
+-		cache: cache.NewCache(cache.DefaultMaxEntries),
++		cache: disabledCache{},
+ 	}
+ 	donec := make(chan struct{})
+ 	close(donec)
