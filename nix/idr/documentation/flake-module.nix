@@ -124,11 +124,23 @@ in {
     in
       pkgs.nixosOptionsDoc {
         warningsAreErrors = false;
-        transformOptions = relativeDeclarations (
-          if source == null
-          then self
-          else source
-        );
+        transformOptions = option: let
+          relative =
+            relativeDeclarations (
+              if source == null
+              then self
+              else source
+            )
+            option;
+        in
+          if source == null || !option.visible || option.internal
+          then relative
+          else
+            lib.filterAttrs (field: value:
+              !(builtins.elem field ["default" "example"])
+              # tryEval alone does not force text inside rendered values.
+              || (builtins.tryEval (builtins.deepSeq value true)).success)
+            relative;
         options = let
           evaluated =
             (evalModules {
@@ -320,11 +332,12 @@ in {
                         (mkModuleDoc {
                           inherit type;
                           source = input;
-                          modules = builtins.attrValues (
+                          # Probe exports without forcing module bodies.
+                          modules = builtins.attrValues (lib.filterAttrs (_: module: (builtins.tryEval module).success) (
                             if namedModules == {}
                             then modules
                             else namedModules
-                          );
+                          ));
                         }).optionsJSON
                         + "/share/doc/nixos/options.json";
                   })

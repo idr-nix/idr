@@ -71,6 +71,7 @@ top: {flake-parts-lib, ...}: {
     ./checks/documentation-disabled.nix
     ./checks/documentation-search.nix
     ./checks/documentation-library.nix
+    ./checks/documentation-input-modules.nix
     ./checks/preset-container-restart.nix
     ./checks/preset-container-secrets.nix
     ./checks/service-loopback-addresses.nix
