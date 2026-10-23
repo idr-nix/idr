@@ -23,6 +23,7 @@ in {
     ./systemd.nix
     ./serial-console.nix
     ./boot.nix
+    ./initrd-keyboard.nix
     ./sudo.nix
     ./disko.nix
     ./key-rotation.nix

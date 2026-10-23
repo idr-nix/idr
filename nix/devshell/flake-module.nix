@@ -72,6 +72,7 @@ top: {flake-parts-lib, ...}: {
     ./checks/documentation-search.nix
     ./checks/documentation-library.nix
     ./checks/documentation-input-modules.nix
+    ./checks/initrd-keyboard.nix
     ./checks/preset-container-restart.nix
     ./checks/preset-container-secrets.nix
     ./checks/service-loopback-addresses.nix
