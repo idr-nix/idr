@@ -57,7 +57,7 @@ top: {lib, ...}: {
                 "cp --no-preserve=mode ${top.self}/templates/machine/flake-module.nix nix/machine/flake-module.nix && "
                 "cp -r --no-preserve=mode ${top.self}/nix/machine/${example} nix/machine/test-machine && "
                 "sed -i s/${example}/test-machine/g nix/machine/test-machine/flake-module.nix nix/machine/test-machine/configuration.nix && "
-                "chmod 0600 nix/machine/flake-module.nix nix/machine/test-machine/* && "
+                "find nix/machine -type f -exec chmod 0600 {} + && "
                 "git add nix/machine && "
                 "install -D -m 0600 ${top.self}/.data/machine-host-key/${example} .data/machine-host-key/test-machine && "
                 "install -m 0644 ${top.self}/.data/machine-host-key/${example}.pub .data/machine-host-key/test-machine.pub'"

@@ -113,10 +113,10 @@ top: {lib, ...}: {
             assert state == {"project": {}, "empty": {}, "custom": {}, "files": {}}, state
 
             machine_config = (
-                r'/config = lib.mkMerge \[/a\    '
-                '{ idr.project.project.some-module = { first = {}; second = {}; paused.enable = false; }; '
+                r'/^  config = {/a\    '
+                'idr.project.project.some-module = { first = {}; second = {}; paused.enable = false; }; '
                 'idr.project.project."123-module" = { active = {}; paused.enable = false; }; '
-                'custom."123"."if" = { active = {}; paused.enable = false; }; }'
+                'custom."123"."if" = { active = {}; paused.enable = false; };'
             )
             operator(
                 "sed -i " + shlex.quote(machine_config)

@@ -9,28 +9,23 @@ top: {
     lib.unique (
       (builtins.attrValues top.inputs.idr.modules.nixos) ++ (builtins.attrValues top.inputs.self.modules.nixos)
     )
-    ++ (top.idr-lib.importApplyAll top [
-      ./hardware-specific.nix
-    ]);
+    ++ (top.idr-lib.importModules ./config top);
 
-  config = lib.mkMerge [
-    # misc
-    {
-      hardware.facter.reportPath = lib.mkIf (builtins.pathExists ./facter.json) ./facter.json;
-      networking.hostName = "{{ name }}";
-      system.stateVersion = "{{ state_version }}";
+  config = {
+    hardware.facter.reportPath = lib.mkIf (builtins.pathExists ./facter.json) ./facter.json;
+    networking.hostName = "{{ name }}";
+    system.stateVersion = "{{ state_version }}";
 
-      idr.preset.base = {
-        inherit (top) inputs;
-        id = "{{ id }}";
-        defaultSopsFile = ./secrets.enc.json;
-{% if template == 'machine' %}
-        preFormatFiles."/disk-key.txt" = {
-          sopsFile = ./disk-key.enc.json;
-          key = "disk_key";
-        };
-{% endif %}
+    idr.preset.base = {
+      inherit (top) inputs;
+      id = "{{ id }}";
+      defaultSopsFile = ./secrets.enc.json;
+{%- if template == 'machine' %}
+      preFormatFiles."/disk-key.txt" = {
+        sopsFile = ./disk-key.enc.json;
+        key = "disk_key";
       };
-    }
-  ];
+{%- endif %}
+    };
+  };
 }

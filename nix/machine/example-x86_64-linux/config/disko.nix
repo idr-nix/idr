@@ -1,14 +1,3 @@
-{% if template == 'microvm' %}
-top: {...}: {
-  idr.microvmGuest = {
-    enable = true;
-    network.ipv4Address = "{{ ipv4_address }}";
-    diskSizeMiB = 64 * 1024;
-    # Enable when the host assigns an NVIDIA GPU to this machine.
-    nvidia.enable = false;
-  };
-}
-{% else %}
 top: moduleArgs @ {
   pkgs,
   lib,
@@ -225,25 +214,5 @@ in {
         };
       };
     };
-
-    # network
-    systemd.network.networks."{{ example_mac }}" = {
-      matchConfig.MACAddress = "{{ example_mac }}";
-      address = [
-        "192.0.2.10/24"
-        "2001:db8::10/64"
-      ];
-      routes = [
-        {
-          Gateway = "fe80::1";
-          GatewayOnLink = true;
-        }
-        {
-          Gateway = "192.0.2.1";
-        }
-      ];
-      linkConfig.RequiredForOnline = "routable";
-    };
   };
 }
-{% endif %}

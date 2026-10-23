@@ -105,9 +105,8 @@ top: {lib, ...}: {
 
               with subtest("deploy a new application dataset and its persistence declaration"):
                   machine.succeed(
-                      "cd /root/project && cp ${application} nix/machine/test-machine/my-app.nix && "
-                      "sed -i '/hardware-specific.nix/a\\      ./my-app.nix' "
-                      "nix/machine/test-machine/configuration.nix && git add nix/machine/test-machine"
+                      "cd /root/project && cp ${application} nix/machine/test-machine/config/my-app.nix && "
+                      "git add nix/machine/test-machine/config/my-app.nix"
                   )
                   machine.succeed(shell + "deploy -s .#vm-test-machine -- -L", timeout=900)
                   source, compression = machine.succeed(remote(

@@ -177,6 +177,38 @@ in
       (builtins.readDir directory);
 
     /**
+    Import `.nix` files directly inside a directory using `importApplyAll`.
+    Each file takes the supplied arguments and returns a module.
+
+    # Example
+
+    ```nix
+    imports = importModules ./config top;
+    ```
+
+    # Type
+
+    ```
+    importModules :: Path -> AttrSet -> [Module]
+    ```
+
+    # Arguments
+
+    directory
+    : A directory containing module files
+
+    args
+    : The arguments passed to each module
+    */
+    importModules = directory: args:
+      importApplyAll args (
+        lib.mapAttrsToList (name: _: directory + "/${name}") (
+          lib.filterAttrs (name: _: lib.hasSuffix ".nix" name && lib.pathIsRegularFile (directory + "/${name}"))
+          (builtins.readDir directory)
+        )
+      );
+
+    /**
     Import a list of module files with the supplied arguments.
 
     # Example

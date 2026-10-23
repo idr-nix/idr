@@ -63,11 +63,12 @@ Nix system, for example `idr-mk-machine -s aarch64-linux some-machine`.
 
 The idr-mk-machine command creates the following files in `./nix/machine/<machine-name>`:
 
-1. `hardware-specific.nix` - sample disk layout and network configuration
-2. `configuration.nix` - imports all modules and enables the base preset
-3. `secrets.enc.json` - SSH host keys and the root password
-4. `disk-key.enc.json` - the disk encryption key
-5. `flake-module.nix` - registers configuration.nix for NixOS and deploy-rs
+1. `configuration.nix` - imports all modules and enables the base preset
+2. `config/disko.nix` - sample disk layout and persistence configuration
+3. `config/network.nix` - sample network configuration
+4. `secrets.enc.json` - SSH host keys and the root password
+5. `disk-key.enc.json` - the disk encryption key
+6. `flake-module.nix` - registers configuration.nix for NixOS and deploy-rs
 
 The generated host key can decrypt both secret files. It is initially stored in
 plaintext in `.data/machine-host-key/<machine-name>` until operator access is
@@ -124,6 +125,24 @@ Note that `idr` is a wrapper around process-compose.
 Run `idr -h` to see the list of available commands.
 See [local VM operation](local-vms.md) for SSH access, consoles, and QEMU settings.
 
+### Machine modules
+
+`configuration.nix` automatically imports `.nix` files directly inside `config/`
+for this machine. Each file takes `top` followed by the NixOS module arguments,
+for example `config/qemu.nix`:
+
+```nix
+top: {...}: {
+  idr.meta.preset.base.qemu.memorySize = 8192;
+}
+```
+
+Stage new files so the flake can see them:
+
+```sh
+git add nix/machine/some-machine/config/qemu.nix
+```
+
 ### Hardware and network configuration
 
 Generate `facter.json` on the target machine, then copy it into the machine's
@@ -139,10 +158,11 @@ The generated `configuration.nix` automatically loads the adjacent `facter.json`
 
 See [server presets](../nix/preset/README.md) for base settings and persistence.
 
-Set the disk layout and network in `hardware-specific.nix`.
+Set the disk layout in `config/disko.nix` and networking in `config/network.nix`.
 
-The default Disko layout in `hardware-specific.nix` uses two disks with LUKS-encrypted partitions
-forming a ZFS mirror vdev, plus boot partitions and encrypted swap on each disk.
+The default Disko layout in `config/disko.nix` uses two disks with LUKS-encrypted
+partitions forming a ZFS mirror vdev, plus boot partitions and encrypted swap on
+each disk.
 
 Replace the example disk IDs and sizes for your hardware. Use stable
 `/dev/disk/by-id/` paths so disk selection does not depend on discovery order.
@@ -154,7 +174,8 @@ See the [Disko examples](https://github.com/nix-community/disko/tree/master/exam
 Configure networking through `systemd.network`. Match physical NICs by stable
 hardware attributes, such as `matchConfig.MACAddress`.
 
-The sample static configuration in `hardware-specific.nix` uses documentation addresses.
+The sample static configuration in `config/network.nix` uses documentation
+addresses.
 Replace its MAC, addresses, and routes if you choose static networking.
 
 Then follow the
