@@ -14,9 +14,9 @@ idr-mk-machine worker --template microvm
 ```
 
 The template provides DHCP networking and a 64 GiB unencrypted Btrfs system disk.
-Set `idr.microvmGuest.diskSizeMiB` to change its initial size. The root subvolume
-resets at each boot; `/nix`, `/persist` and `/boot` survive. Declare application
-state as described in
+Set `idr.microvmGuest.diskSizeMiB` in `config/microvm.nix` to change its initial
+size. The root subvolume resets at each boot; `/nix`, `/persist` and `/boot`
+survive. Declare application state as described in
 [persistent data](../nix/preset/README.md#persistent-data).
 
 In the guest configuration, authorize the host to decrypt its SOPS files and

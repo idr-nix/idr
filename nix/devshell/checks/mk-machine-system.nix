@@ -66,7 +66,8 @@ top: {lib, ...}: {
             operator("direnv exec . idr-mk-machine -s aarch64-linux arm-machine </dev/null")
             operator(
                 "git ls-files --error-unmatch nix/machine/arm-machine/flake-module.nix "
-                "nix/machine/arm-machine/configuration.nix nix/machine/arm-machine/hardware-specific.nix "
+                "nix/machine/arm-machine/configuration.nix nix/machine/arm-machine/config/disko.nix "
+                "nix/machine/arm-machine/config/network.nix "
                 "nix/machine/arm-machine/secrets.enc.json nix/machine/arm-machine/disk-key.enc.json"
             )
 

@@ -47,10 +47,12 @@ _skip_if_exists:
   - flake-module.nix
   - "{{ name }}/flake-module.nix"
   - "{{ name }}/configuration.nix"
-  - "{{ name }}/hardware-specific.nix"
+  - "{{ name }}/config/disko.nix"
+  - "{{ name }}/config/network.nix"
+  - "{{ name }}/config/microvm.nix"
   - "{{ name }}/secrets.enc.json"
   - "{{ name }}/disk-key.enc.json"
 _tasks:
-  - chmod 0600 flake-module.nix {{ name }}/{flake-module,configuration,hardware-specific}.nix {{ name }}/secrets.enc.json{% if template == 'machine' %} {{ name }}/disk-key.enc.json{% endif %}
-  - git add flake-module.nix {{ name }}/{flake-module,configuration,hardware-specific}.nix {{ name }}/secrets.enc.json{% if template == 'machine' %} {{ name }}/disk-key.enc.json{% endif %}
+  - chmod 0600 flake-module.nix {{ name }}/{flake-module,configuration}.nix {{ name }}/secrets.enc.json{% if template == 'machine' %} {{ name }}/config/{disko,network}.nix {{ name }}/disk-key.enc.json{% else %} {{ name }}/config/microvm.nix{% endif %}
+  - git add flake-module.nix {{ name }}/{flake-module,configuration}.nix {{ name }}/secrets.enc.json{% if template == 'machine' %} {{ name }}/config/{disko,network}.nix {{ name }}/disk-key.enc.json{% else %} {{ name }}/config/microvm.nix{% endif %}
   - idr-setup-machine{% if template == 'microvm' %} --no-disk-key{% endif %} {{ name }}

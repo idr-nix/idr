@@ -93,7 +93,7 @@ top: {lib, ...}: {
             user_command("direnv allow", timeout=600)
             ${lib.optionalString (mode == "refresh") ''
               # Load the changed configuration on the first command, without a warmup.
-              user_command("sed -i '/# misc/a\\    { environment.etc.\"image-reuse-generation\".text = \"updated\"; }' "
+              user_command("sed -i '/networking.hostName =/a\\    environment.etc.\"image-reuse-generation\".text = \"updated\";' "
                            "nix/machine/test-machine/configuration.nix && "
                            "git add nix/machine/test-machine/configuration.nix", timeout=3500)
             ''}
