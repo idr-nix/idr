@@ -165,9 +165,14 @@ in {
             package
             // {
               default = pkgs.etcd.deps.etcdserver.overrideAttrs (old: {
-                patches = (old.patches or []) ++ [./grpc-proxy-disable-kv-cache.patch];
+                patches =
+                  (old.patches or [])
+                  ++ [
+                    ./grpc-proxy-disable-kv-cache.patch
+                    ./grpc-proxy-forward-lease-keepalive.patch
+                  ];
               });
-              defaultText = "pkgs.etcd.deps.etcdserver with the temporary KV cache workaround";
+              defaultText = "pkgs.etcd.deps.etcdserver with gRPC proxy patches";
             };
           enable = mkOption {
             type = types.bool;
