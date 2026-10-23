@@ -30,4 +30,18 @@ top: {lib, ...}: {
     lastReviewedAt = 1792722261; # 2026-10-23 UTC
     reviewIntervalSec = 90 * 24 * 60 * 60;
   };
+
+  idr.reminders.etcd-proxy-watch-auth = {
+    description = ''
+      Review the temporary etcd gRPC proxy watch authentication fix.
+      Upstream PR: https://github.com/etcd-io/etcd/pull/19033
+
+      Run the etcd-proxy regression test with only the watch authentication
+      patch removed. Once watches for different users and after token expiry
+      pass, remove nix/etcd/grpc-proxy-watch-auth.patch and its entry in
+      nix/etcd/options.nix. Keep the regression tests.
+    '';
+    lastReviewedAt = 1792725574; # 2026-10-23 UTC
+    reviewIntervalSec = 30 * 24 * 60 * 60;
+  };
 }

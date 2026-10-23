@@ -170,6 +170,7 @@ in {
                   ++ [
                     ./grpc-proxy-disable-kv-cache.patch
                     ./grpc-proxy-forward-lease-keepalive.patch
+                    ./grpc-proxy-watch-auth.patch
                   ];
               });
               defaultText = "pkgs.etcd.deps.etcdserver with gRPC proxy patches";

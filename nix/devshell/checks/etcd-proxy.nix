@@ -3,6 +3,9 @@ top: {lib, ...}: {
     checks.etcd-proxy = pkgs.testers.runNixOSTest {
       imports = [(lib.modules.importApply ./etcd-auth-fixture.nix {inherit top;})];
       name = "etcd-proxy";
+      nodes.alpha.systemd.services.idr-etcd-alpha.environment.ETCD_AUTH_TOKEN_TTL = "15";
+      nodes.beta.systemd.services.idr-etcd-beta.environment.ETCD_AUTH_TOKEN_TTL = "15";
+      nodes.gamma.systemd.services.idr-etcd-gamma.environment.ETCD_AUTH_TOKEN_TTL = "15";
       nodes.proxy = {
         idr.etcd.proxy.application = {
           endpoints = [
@@ -136,6 +139,53 @@ top: {lib, ...}: {
                 admin + "get /application/lease --write-out=json | jq -e '(.count // 0) == 0'",
                 timeout=lease_ttl,
             )
+
+        def put_watch_value(client, key, value):
+            result = json.loads(proxy.succeed(client + f"put {key} {value} --write-out=json"))
+            return result["header"]["revision"]
+
+        def assert_watch_event(name, key, value, revision):
+            proxy.wait_until_succeeds(
+                "jq -e -s 'any(.[].Events[]?; "
+                + f'(.kv.key | @base64d) == "{key}" and '
+                + f'(.kv.value | @base64d) == "{value}" and .kv.mod_revision == {revision})'
+                + f"' /tmp/etcd-watch-{name}.json",
+                timeout=30,
+            )
+
+        def start_watch(client, name, key):
+            revision = put_watch_value(client, key, "seed")
+            proxy.succeed(
+                f"systemd-run --unit=etcd-watch-{name} --property=Type=exec "
+                "--setenv=PATH=/run/current-system/sw/bin "
+                f"--property=StandardOutput=append:/tmp/etcd-watch-{name}.json "
+                "env ETCDCTL_DIAL_TIMEOUT=30s "
+                + client + f"watch {key} --rev={revision} --write-out=json"
+            )
+            proxy.wait_for_unit(f"etcd-watch-{name}.service")
+            # Receiving the seed at its known revision proves the watch is ready.
+            assert_watch_event(name, key, "seed", revision)
+
+        with subtest("deliver watch events to users with separate permissions"):
+            start_watch(application, "application", "/application/watch")
+            start_watch(retired, "retired", "/retired/watch")
+            for client, name in [(application, "application"), (retired, "retired")]:
+                key = f"/{name}/watch"
+                revision = put_watch_value(client, key, "updated")
+                assert_watch_event(name, key, "updated", revision)
+
+        with subtest("start a new watch after the first watch's authentication token expires"):
+            # Simple tokens expire after 15 seconds idle, checked every second.
+            time.sleep(17)
+            start_watch(application, "refreshed", "/application/watch-after-expiry")
+            for client, name, key in [
+                (application, "application", "/application/watch"),
+                (retired, "retired", "/retired/watch"),
+                (application, "refreshed", "/application/watch-after-expiry"),
+            ]:
+                revision = put_watch_value(client, key, "after-expiry")
+                assert_watch_event(name, key, "after-expiry", revision)
+                proxy.succeed(f"systemctl stop etcd-watch-{name}.service")
 
         with subtest("keep the local endpoint usable when an upstream member stops"):
             alpha.shutdown()

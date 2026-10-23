@@ -1,0 +1,28 @@
+Production changes from https://github.com/etcd-io/etcd/pull/19033.
+Upstream commit: aff93fa376d1ea22ee604d1cd5d6f2a5d029d17c
+
+--- a/server/proxy/grpcproxy/util.go
++++ b/server/proxy/grpcproxy/util.go
+@@ -37,7 +37,8 @@ func getAuthTokenFromClient(ctx context.Context) string {
+ func withClientAuthToken(ctx, ctxWithToken context.Context) context.Context {
+ 	token := getAuthTokenFromClient(ctxWithToken)
+ 	if token != "" {
+-		ctx = context.WithValue(ctx, rpctypes.TokenFieldNameGRPCKey{}, token)
++		md := metadata.Pairs(rpctypes.TokenFieldNameGRPC, token)
++		return metadata.NewOutgoingContext(ctx, md)
+ 	}
+ 	return ctx
+ }
+@@ -66,9 +67,9 @@ func AuthUnaryClientInterceptor(ctx context.Context, method string, req, reply a
+ }
+ 
+ func AuthStreamClientInterceptor(ctx context.Context, desc *grpc.StreamDesc, cc *grpc.ClientConn, method string, streamer grpc.Streamer, opts ...grpc.CallOption) (grpc.ClientStream, error) {
+-	tokenif := ctx.Value(rpctypes.TokenFieldNameGRPCKey{})
+-	if tokenif != nil {
+-		tokenCred := &proxyTokenCredential{tokenif.(string)}
++	token := getAuthTokenFromClient(ctx)
++	if token != "" {
++		tokenCred := &proxyTokenCredential{token}
+ 		opts = append(opts, grpc.PerRPCCredentials(tokenCred))
+ 	}
+ 	return streamer(ctx, desc, cc, method, opts...)
