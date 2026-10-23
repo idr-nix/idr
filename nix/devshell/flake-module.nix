@@ -102,4 +102,15 @@ top: {flake-parts-lib, ...}: {
   ];
 
   flake.modules.devshell.idr = flake-parts-lib.importApply ./devshell.nix top;
+
+  perSystem = {
+    lib,
+    pkgs,
+    ...
+  }: {
+    legacyPackages.idrOfflineDependencies = import ./offline-deps.nix {
+      inherit lib pkgs;
+      idr = top.self;
+    };
+  };
 }

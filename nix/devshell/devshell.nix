@@ -94,7 +94,7 @@ top: {
     '';
   };
 in {
-  # Evaluate package paths (including VM installers) alongside environment
+  # Evaluate package paths alongside environment
   # values (including option indexes), before constructing the shell.
   options.devshell.shell = lib.mkOption {
     internal = true;
@@ -152,6 +152,27 @@ in {
         {
           name = "PRJ_DATA_DIR";
           eval = "\${PRJ_DATA_DIR:-$([ -w \"$PRJ_ROOT\" ] && echo \"$PRJ_ROOT/.data\" || echo \"$PWD/.data\")}";
+        }
+        {
+          name = "IDR_GCROOT";
+          eval = "$(${pkgs.nushell}/bin/nu -n --no-std-lib --no-history -c ${lib.escapeShellArg ''
+            use ${scripts}/idr-common.nu [host-data-dir]
+            let directory = host-data-dir | path expand
+            mkdir ($directory | path join "gcroot") ($directory | path join "tmp")
+            $directory | path join "gcroot"
+          ''})";
+        }
+        {
+          name = "TMPDIR";
+          eval = "\"$(${pkgs.coreutils}/bin/dirname \"$IDR_GCROOT\")/tmp\"";
+        }
+        {
+          name = "TMP";
+          eval = "$TMPDIR";
+        }
+        {
+          name = "TEMP";
+          eval = "$TMPDIR";
         }
         {
           name = "PATH";

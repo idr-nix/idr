@@ -108,6 +108,14 @@ top: args @ {
       ];
     };
 
-    packages.default = self'.devShells.default;
+    packages.default =
+      self'.devShells.default
+      // {
+        passthru =
+          (self'.devShells.default.passthru or {})
+          // {
+            deps = top.self.legacyPackages.${system}.idrOfflineDependencies;
+          };
+      };
   };
 }
