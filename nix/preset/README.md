@@ -18,6 +18,10 @@ declarative users, Fail2ban, ZFS scrubbing, and Podman. Network and SSH access a
 also configured in the initrd so disks can be unlocked remotely. Root SSH access
 is controlled through the [team configuration](../../docs/team-input.md#ssh-access).
 
+An on-screen unlock keyboard is enabled for systemd initrds without Plymouth.
+Set `boot.initrd.unl0kr.enable = false;` to disable it. Touchscreen drivers must
+be available in the initrd.
+
 Use the regular NixOS options to change these defaults. For example, to disable
 Podman:
 
