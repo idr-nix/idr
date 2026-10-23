@@ -187,6 +187,18 @@ top: {lib, ...}: {
                 assert_watch_event(name, key, "after-expiry", revision)
                 proxy.succeed(f"systemctl stop etcd-watch-{name}.service")
 
+        with subtest("notify idle watchers of progress within 30 seconds"):
+            proxy.succeed(
+                "systemd-run --unit=etcd-watch-progress --property=Type=exec "
+                "--setenv=PATH=/run/current-system/sw/bin "
+                "--property=StandardOutput=append:/tmp/etcd-watch-progress.log "
+                "env ETCDCTL_DIAL_TIMEOUT=30s "
+                + application + "watch /application/progress --progress-notify"
+            )
+            proxy.wait_for_unit("etcd-watch-progress.service")
+            proxy.wait_until_succeeds("grep -qF 'progress notify:' /tmp/etcd-watch-progress.log", timeout=30)
+            proxy.succeed("systemctl stop etcd-watch-progress.service")
+
         with subtest("keep the local endpoint usable when an upstream member stops"):
             alpha.shutdown()
             proxy.wait_until_succeeds(application + "put /application/proxy after-member-stop")

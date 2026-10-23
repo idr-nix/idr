@@ -51,6 +51,12 @@ Create and mount the `dataDir` dataset in the machine configuration. The module
 bind-mounts it at `/var/lib/private/idr-etcd-<name>` and runs etcd with
 `DynamicUser` and `StateDirectory`. See [persistent storage](../preset/README.md#persistent-data).
 
+Members retain about 24 hours of revision history; current values remain.
+Configure `instances.<name>.autoCompactionRetention` (`"0"` disables compaction).
+
+Use `etcdctl watch --progress-notify` or the equivalent client option for idle
+progress updates about every five seconds.
+
 Use [IDR secret references](../secrets/README.md) for certificates and private
 keys. `allowedIPs` controls access to the HTTPS client port.
 
