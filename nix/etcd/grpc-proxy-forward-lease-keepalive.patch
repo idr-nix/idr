@@ -1,0 +1,337 @@
+--- a/server/proxy/grpcproxy/lease.go
++++ b/server/proxy/grpcproxy/lease.go
+@@ -19,21 +19,15 @@
+ 	"errors"
+ 	"io"
+ 	"sync"
+-	"sync/atomic"
+-	"time"
+ 
+ 	"google.golang.org/grpc"
+-	"google.golang.org/grpc/codes"
+-	"google.golang.org/grpc/metadata"
+-	"google.golang.org/grpc/status"
+ 
+ 	pb "go.etcd.io/etcd/api/v3/etcdserverpb"
+-	"go.etcd.io/etcd/api/v3/v3rpc/rpctypes"
+ 	clientv3 "go.etcd.io/etcd/client/v3"
+ )
+ 
+ type leaseProxy struct {
+-	// leaseClient handles req from LeaseGrant() that requires a lease ID.
++	// leaseClient forwards lease grants and keepalive streams.
+ 	leaseClient pb.LeaseClient
+ 
+ 	lessor clientv3.Lease
+@@ -42,10 +36,10 @@
+ 
+ 	leader *leader
+ 
+-	// mu protects adding outstanding leaseProxyStream through wg.
++	// mu protects registering keepalive streams with wg.
+ 	mu sync.RWMutex
+ 
+-	// wg waits until all outstanding leaseProxyStream quit.
++	// wg waits until all keepalive forwarding workers quit.
+ 	wg sync.WaitGroup
+ }
+ 
+@@ -143,243 +137,69 @@
+ 	lp.mu.Unlock()
+ 
+ 	ctx, cancel := context.WithCancel(stream.Context())
+-	lps := leaseProxyStream{
+-		stream:          stream,
+-		lessor:          lp.lessor,
+-		keepAliveLeases: make(map[int64]*atomicCounter),
+-		respc:           make(chan *pb.LeaseKeepAliveResponse),
+-		ctx:             ctx,
+-		cancel:          cancel,
++	defer cancel()
++	stop := context.AfterFunc(lp.ctx, cancel)
++	defer stop()
++	ctx = clientv3.WithRequireLeader(withClientAuthToken(ctx, stream.Context()))
++	upstream, err := lp.leaseClient.LeaseKeepAlive(ctx, grpc.WaitForReady(true))
++	if err != nil {
++		lp.wg.Done()
++		return err
+ 	}
+ 
+ 	errc := make(chan error, 2)
+-
+-	var lostLeaderC <-chan struct{}
+-	if md, ok := metadata.FromOutgoingContext(stream.Context()); ok {
+-		v := md[rpctypes.MetadataRequireLeaderKey]
+-		if len(v) > 0 && v[0] == rpctypes.MetadataHasLeader {
+-			lostLeaderC = lp.leader.lostNotify()
+-			// if leader is known to be lost at creation time, avoid
+-			// letting events through at all
+-			select {
+-			case <-lostLeaderC:
+-				lp.wg.Done()
+-				return rpctypes.ErrNoLeader
+-			default:
++	var workers sync.WaitGroup
++	workers.Add(2)
++	go func() {
++		defer workers.Done()
++		for {
++			req, err := stream.Recv()
++			if errors.Is(err, io.EOF) {
++				if err := upstream.CloseSend(); err != nil && !errors.Is(err, io.EOF) {
++					errc <- err
++				}
++				return
++			}
++			if err == nil {
++				err = upstream.Send(req)
++			}
++			// Recv reports the backend status when Send returns EOF.
++			if errors.Is(err, io.EOF) {
++				return
++			}
++			if err != nil {
++				errc <- err
++				return
+ 			}
+ 		}
+-	}
+-	stopc := make(chan struct{}, 3)
+-	go func() {
+-		defer func() { stopc <- struct{}{} }()
+-		if err := lps.recvLoop(); err != nil {
+-			errc <- err
++	}()
++	go func() {
++		defer workers.Done()
++		for {
++			resp, err := upstream.Recv()
++			if errors.Is(err, io.EOF) {
++				errc <- nil
++				return
++			}
++			if err == nil {
++				err = stream.Send(resp)
++			}
++			if err != nil {
++				errc <- err
++				return
++			}
+ 		}
+ 	}()
+-
+-	go func() {
+-		defer func() { stopc <- struct{}{} }()
+-		if err := lps.sendLoop(); err != nil {
+-			errc <- err
+-		}
+-	}()
+-
+-	// tears down LeaseKeepAlive stream if leader goes down or entire leaseProxy is terminated.
+-	go func() {
+-		defer func() { stopc <- struct{}{} }()
+-		select {
+-		case <-lostLeaderC:
+-		case <-ctx.Done():
+-		case <-lp.ctx.Done():
+-		}
+-	}()
+-
+-	var err error
++	// Returning cancels downstream Recv; wait for both forwarding workers.
++	go func() {
++		workers.Wait()
++		lp.wg.Done()
++	}()
++
+ 	select {
+-	case <-stopc:
+-		stopc <- struct{}{}
+-	case err = <-errc:
+-	}
+-	cancel()
+-
+-	// recv/send may only shutdown after function exits;
+-	// this goroutine notifies lease proxy that the stream is through
+-	go func() {
+-		<-stopc
+-		<-stopc
+-		<-stopc
+-		lps.close()
+-		close(errc)
+-		lp.wg.Done()
+-	}()
+-
+-	select {
+-	case <-lostLeaderC:
+-		return rpctypes.ErrNoLeader
+-	case <-lp.leader.disconnectNotify():
+-		return status.Error(codes.Canceled, "the client connection is closing")
+-	default:
+-		if err != nil {
+-			return err
+-		}
++	case err := <-errc:
++		return err
++	case <-ctx.Done():
+ 		return ctx.Err()
+ 	}
+ }
+-
+-type leaseProxyStream struct {
+-	stream pb.Lease_LeaseKeepAliveServer
+-
+-	lessor clientv3.Lease
+-	// wg tracks keepAliveLoop goroutines
+-	wg sync.WaitGroup
+-	// mu protects keepAliveLeases
+-	mu sync.RWMutex
+-	// keepAliveLeases tracks how many outstanding keepalive requests which need responses are on a lease.
+-	keepAliveLeases map[int64]*atomicCounter
+-	// respc receives lease keepalive responses from etcd backend
+-	respc chan *pb.LeaseKeepAliveResponse
+-
+-	ctx    context.Context
+-	cancel context.CancelFunc
+-}
+-
+-func (lps *leaseProxyStream) recvLoop() error {
+-	for {
+-		rr, err := lps.stream.Recv()
+-		if errors.Is(err, io.EOF) {
+-			return nil
+-		}
+-		if err != nil {
+-			return err
+-		}
+-		lps.mu.Lock()
+-		neededResps, ok := lps.keepAliveLeases[rr.ID]
+-		if !ok {
+-			neededResps = &atomicCounter{}
+-			lps.keepAliveLeases[rr.ID] = neededResps
+-			lps.wg.Add(1)
+-			go func() {
+-				defer lps.wg.Done()
+-				if err := lps.keepAliveLoop(rr.ID, neededResps); err != nil {
+-					lps.cancel()
+-				}
+-			}()
+-		}
+-		neededResps.add(1)
+-		lps.mu.Unlock()
+-	}
+-}
+-
+-func (lps *leaseProxyStream) keepAliveLoop(leaseID int64, neededResps *atomicCounter) error {
+-	cctx, ccancel := context.WithCancel(lps.ctx)
+-	defer ccancel()
+-	respc, err := lps.lessor.KeepAlive(cctx, clientv3.LeaseID(leaseID))
+-	if err != nil {
+-		return err
+-	}
+-	// ticker expires when loop hasn't received keepalive within TTL
+-	var ticker <-chan time.Time
+-	for {
+-		select {
+-		case <-ticker:
+-			lps.mu.Lock()
+-			// if there are outstanding keepAlive reqs at the moment of ticker firing,
+-			// don't close keepAliveLoop(), let it continuing to process the KeepAlive reqs.
+-			if neededResps.get() > 0 {
+-				lps.mu.Unlock()
+-				ticker = nil
+-				continue
+-			}
+-			delete(lps.keepAliveLeases, leaseID)
+-			lps.mu.Unlock()
+-			return nil
+-		case rp, ok := <-respc:
+-			if !ok {
+-				lps.mu.Lock()
+-				delete(lps.keepAliveLeases, leaseID)
+-				lps.mu.Unlock()
+-				if neededResps.get() == 0 {
+-					return nil
+-				}
+-				ttlResp, err := lps.lessor.TimeToLive(cctx, clientv3.LeaseID(leaseID))
+-				if err != nil {
+-					return err
+-				}
+-				r := &pb.LeaseKeepAliveResponse{
+-					Header: ttlResp.ResponseHeader,
+-					ID:     int64(ttlResp.ID),
+-					TTL:    ttlResp.TTL,
+-				}
+-				for neededResps.get() > 0 {
+-					select {
+-					case lps.respc <- r:
+-						neededResps.add(-1)
+-					case <-lps.ctx.Done():
+-						return nil
+-					}
+-				}
+-				return nil
+-			}
+-			if neededResps.get() == 0 {
+-				continue
+-			}
+-			ticker = time.After(time.Duration(rp.TTL) * time.Second)
+-			r := &pb.LeaseKeepAliveResponse{
+-				Header: rp.ResponseHeader,
+-				ID:     int64(rp.ID),
+-				TTL:    rp.TTL,
+-			}
+-			lps.replyToClient(r, neededResps)
+-		}
+-	}
+-}
+-
+-func (lps *leaseProxyStream) replyToClient(r *pb.LeaseKeepAliveResponse, neededResps *atomicCounter) {
+-	timer := time.After(500 * time.Millisecond)
+-	for neededResps.get() > 0 {
+-		select {
+-		case lps.respc <- r:
+-			neededResps.add(-1)
+-		case <-timer:
+-			return
+-		case <-lps.ctx.Done():
+-			return
+-		}
+-	}
+-}
+-
+-func (lps *leaseProxyStream) sendLoop() error {
+-	for {
+-		select {
+-		case lrp, ok := <-lps.respc:
+-			if !ok {
+-				return nil
+-			}
+-			if err := lps.stream.Send(lrp); err != nil {
+-				return err
+-			}
+-		case <-lps.ctx.Done():
+-			return lps.ctx.Err()
+-		}
+-	}
+-}
+-
+-func (lps *leaseProxyStream) close() {
+-	lps.cancel()
+-	lps.wg.Wait()
+-	// only close respc channel if all the keepAliveLoop() goroutines have finished
+-	// this ensures those goroutines don't send resp to a closed resp channel
+-	close(lps.respc)
+-}
+-
+-type atomicCounter struct {
+-	counter int64
+-}
+-
+-func (ac *atomicCounter) add(delta int64) {
+-	atomic.AddInt64(&ac.counter, delta)
+-}
+-
+-func (ac *atomicCounter) get() int64 {
+-	return atomic.LoadInt64(&ac.counter)
+-}

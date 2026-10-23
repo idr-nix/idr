@@ -24,6 +24,8 @@ top: {lib, ...}: {
       };
       testScript = ''
         import ipaddress
+        import json
+        import time
 
         start_all()
         for name, machine in [("alpha", alpha), ("beta", beta), ("gamma", gamma)]:
@@ -88,6 +90,52 @@ top: {lib, ...}: {
             assert_denied(application + query, "etcdserver: permission denied")
             alpha.succeed(admin + "role grant-permission application readwrite /application/ --prefix")
             proxy.wait_until_succeeds(application + "get /application/proxy")
+
+        with subtest("keep authenticated leases alive beyond their original TTL"):
+            granted = json.loads(proxy.succeed(application + "lease grant 15 --write-out=json"))
+            lease = format(granted["ID"], "x")
+            lease_ttl = granted["TTL"]
+            lease_env = "env ETCDCTL_DIAL_TIMEOUT=30s "
+            proxy.succeed(application + f"put /application/lease alive --lease={lease}")
+            proxy.succeed(
+                "systemd-run --unit=etcd-lease-keepalive --property=Type=exec "
+                "--setenv=PATH=/run/current-system/sw/bin "
+                "--property=StandardOutput=append:/tmp/etcd-lease-keepalive.json "
+                + lease_env + application + f"lease keep-alive {lease} --write-out=json"
+            )
+            proxy.wait_for_unit("etcd-lease-keepalive.service")
+            proxy.wait_until_succeeds("test -s /tmp/etcd-lease-keepalive.json", timeout=30)
+            # Positive keepalive replies alone can conceal failed renewal.
+            deadline = time.monotonic() + 2 * lease_ttl
+            while time.monotonic() < deadline:
+                proxy.succeed("systemctl is-active --quiet etcd-lease-keepalive.service")
+                assert alpha.succeed(admin + "get /application/lease --print-value-only").strip() == "alive"
+                time.sleep(2)
+
+        with subtest("reject unauthorized renewal while the owner's keepalive stream is active"):
+            # etcdctl 3.6.11 ignores command-timeout for keepalive; bound these probes externally.
+            assert_denied(
+                "timeout 30s " + lease_env + local + f"lease keep-alive {lease} --once",
+                "etcdserver: user name is empty",
+            )
+            assert_denied(
+                "timeout 30s " + lease_env + retired + f"lease keep-alive {lease} --once",
+                "etcdserver: permission denied",
+            )
+
+        with subtest("expire the lease and its key after the keepalive client stops"):
+            proxy.succeed(
+                "systemctl is-active --quiet etcd-lease-keepalive.service",
+                "systemctl stop etcd-lease-keepalive.service",
+            )
+            alpha.wait_until_succeeds(
+                admin + f"lease timetolive {lease} --write-out=json | jq -e '.ttl == -1'",
+                timeout=3 * lease_ttl,
+            )
+            alpha.wait_until_succeeds(
+                admin + "get /application/lease --write-out=json | jq -e '(.count // 0) == 0'",
+                timeout=lease_ttl,
+            )
 
         with subtest("keep the local endpoint usable when an upstream member stops"):
             alpha.shutdown()
