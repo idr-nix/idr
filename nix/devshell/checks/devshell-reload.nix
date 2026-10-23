@@ -5,73 +5,131 @@ top: {lib, ...}: {
     ...
   }: let
     project = config.checks.mk-project;
+    reloadTest = upstream:
+      pkgs.testers.runNixOSTest ({config, ...}: let
+        inherit (pkgs.stdenv.hostPlatform) isLinux;
+        inherit (config.node.pkgs.stdenv.hostPlatform) system;
+      in {
+        imports = with top.self.modules.nixosTest; [base operator];
+
+        name = "devshell-reload${lib.optionalString upstream "-upstream"}";
+        globalTimeout = 20 * 60;
+
+        idr.test.storePaths = [top.self.packages.${system}.default];
+
+        defaults = {pkgs, ...}: {
+          nix = lib.mkIf upstream {
+            package = lib.mkForce pkgs.nix;
+            settings = lib.mkForce {
+              experimental-features = ["nix-command" "flakes"];
+              sandbox = true;
+              sandbox-fallback = false;
+              substituters = [];
+              trusted-users = ["root"];
+              build-users-group = lib.optionalString (!isLinux) "nixbld";
+            };
+          };
+          systemd.services.idr-project-fixture = {
+            description = "Restore the mk-project archive";
+            wantedBy = ["multi-user.target"];
+            after = ["systemd-tmpfiles-setup.service"];
+            path = [pkgs.gnutar pkgs.gitMinimal];
+            serviceConfig = {
+              Type = "oneshot";
+              RemainAfterExit = true;
+              User = "operator";
+              Group = "operator";
+              WorkingDirectory = "/home/operator";
+            };
+            script = ''
+              tar -xf ${project}/project.tar
+              git -C project init -q
+              git -C project add -A
+            '';
+          };
+        };
+
+        containers = lib.optionalAttrs isLinux {machine = {};};
+
+        nodes = lib.optionalAttrs (!isLinux) {
+          machine = {
+            virtualisation = {
+              memorySize = 8192;
+              cores = 8;
+            };
+            networking.useDHCP = false;
+          };
+        };
+
+        testScript = ''
+          import json
+          import shlex
+
+          def operator(command, timeout=900):
+              return machine.succeed(
+                  "su - operator -c " + shlex.quote("cd project && " + command),
+                  timeout=timeout,
+              )
+
+          start_all()
+          machine.wait_for_unit("idr-project-fixture.service")
+          host_id = operator("cat /etc/machine-id").strip()
+          roots_directory = "/home/operator/project/.data/" + host_id + "/gcroot"
+          temporary_directory = "/home/operator/project/.data/" + host_id + "/tmp"
+          expected_roots = json.loads(operator(
+              "nix --offline eval --json .#packages.${system}.default.passthru.deps --apply "
+              + shlex.quote("builtins.mapAttrs (_: builtins.toString)")
+          ))
+          assert set(expected_roots) == {"example-machine", "nixos-image"}, expected_roots
+
+          def gcroots():
+              registered = [shlex.split(line) for line in machine.succeed("nix-store --gc --print-roots").splitlines()]
+              targets = {}
+              for name in expected_roots:
+                  root = roots_directory + "/" + name
+                  target = operator("readlink -e -- " + shlex.quote(root)).strip()
+                  assert [root, "->", target] in registered, (root, target, registered)
+                  targets[name] = target
+              return targets
+
+          with subtest("enter the development shell to warm the Nix cache"):
+              environment_checks = (
+                  'test "$IDR_GCROOT" = ' + shlex.quote(roots_directory) + '; '
+                  'test "$TMPDIR" = ' + shlex.quote(temporary_directory) + '; '
+                  'test "$TMP" = "$TMPDIR"; test "$TEMP" = "$TMPDIR"; '
+                  'test -d "$IDR_GCROOT"; test -d "$TMPDIR"; '
+                  'temporary=$(mktemp); test "''${temporary%/*}" = "$TMPDIR"; rm -- "$temporary"'
+              )
+              operator("nix --offline develop -c bash -ec " + shlex.quote(environment_checks))
+              original_roots = gcroots()
+              assert original_roots == expected_roots, original_roots
+
+          with subtest("re-enter the cached shell within two minutes"):
+              operator("timeout --kill-after=5s 120s nix --offline develop -c true", timeout=130)
+              assert gcroots() == original_roots
+
+          with subtest("edit the project description"):
+              operator("sed -i 's/^  description = .*/  description = \"Reloaded development environment\";/' flake.nix")
+              operator("grep -Fx '  description = \"Reloaded development environment\";' flake.nix")
+
+          with subtest("reload the development shell within two minutes"):
+              operator("timeout --kill-after=5s 120s nix --offline develop -c true", timeout=130)
+              assert gcroots() == original_roots
+
+          with subtest("restore missing and stale dependency roots offline"):
+              operator("rm -- " + shlex.quote(roots_directory + "/example-machine"))
+              operator(
+                  "ln -sfn -- " + shlex.quote(original_roots["example-machine"]) + " "
+                  + shlex.quote(roots_directory + "/nixos-image")
+              )
+              operator("nix --offline develop -c true")
+              assert gcroots() == original_roots
+        '';
+      });
   in {
-    checks.devshell-reload = pkgs.testers.runNixOSTest ({config, ...}: let
-      inherit (pkgs.stdenv.hostPlatform) isLinux;
-      inherit (config.node.pkgs.stdenv.hostPlatform) system;
-    in {
-      imports = with top.self.modules.nixosTest; [base operator];
-
-      name = "devshell-reload";
-      globalTimeout = 20 * 60;
-
-      idr.test.storePaths = [top.self.packages.${system}.default];
-
-      defaults = {pkgs, ...}: {
-        systemd.services.idr-project-fixture = {
-          description = "Restore the mk-project archive";
-          wantedBy = ["multi-user.target"];
-          after = ["systemd-tmpfiles-setup.service"];
-          path = [pkgs.gnutar pkgs.gitMinimal];
-          serviceConfig = {
-            Type = "oneshot";
-            RemainAfterExit = true;
-            User = "operator";
-            Group = "operator";
-            WorkingDirectory = "/home/operator";
-          };
-          script = ''
-            tar -xf ${project}/project.tar
-            git -C project init -q
-            git -C project add -A
-          '';
-        };
-      };
-
-      containers = lib.optionalAttrs isLinux {machine = {};};
-
-      nodes = lib.optionalAttrs (!isLinux) {
-        machine = {
-          virtualisation = {
-            memorySize = 8192;
-            cores = 8;
-          };
-          networking.useDHCP = false;
-        };
-      };
-
-      testScript = ''
-        import shlex
-
-        def operator(command, timeout=900):
-            return machine.succeed(
-                "su - operator -c " + shlex.quote("cd project && " + command),
-                timeout=timeout,
-            )
-
-        start_all()
-        machine.wait_for_unit("idr-project-fixture.service")
-
-        with subtest("enter the development shell to warm the Nix cache"):
-            operator("nix --offline develop -c true")
-
-        with subtest("edit the project description"):
-            operator("sed -i 's/^  description = .*/  description = \"Reloaded development environment\";/' flake.nix")
-            operator("grep -Fx '  description = \"Reloaded development environment\";' flake.nix")
-
-        with subtest("reload the development shell within two minutes"):
-            operator("timeout --kill-after=5s 120s nix --offline develop -c true", timeout=130)
-      '';
-    });
+    checks = {
+      devshell-reload = reloadTest false;
+      devshell-reload-upstream = reloadTest true;
+    };
   };
 }

@@ -192,38 +192,31 @@ top: {
         publicKey = cfg.system.build.idr.meta.sshHostPublicKey;
         sopsFile = cfg.system.build.idr.meta.defaultSopsFile or null;
       in {
-        "vm-${machineName}" =
-          (
-            if pkgs.stdenv.hostPlatform.isLinux && machine.pkgs.stdenv.hostPlatform.system == hostLinuxSystem
-            then qemuProcess machine
-            else {
-              command = ''
-                exec ${lib.getExe pkgs.nix} ${lib.optionalString pkgs.stdenv.hostPlatform.isLinux "--offline "}-L run ${lib.escapeShellArg "${self}#vm-${machineName}"} -- "$@"
-              '';
-            }
-          )
-          // {
-            availability.restart = "no";
-            disabled = true;
-            namespace = "vm-${machineName}";
-            readiness_probe = lib.mkIf (cfg.services.openssh.enable && publicKey != null) (lib.mkDefault {
-              exec.command = lib.escapeShellArgs ([
-                  (lib.getExe sshReadiness)
-                  cfg.idr.qemu.networkPrefix
-                  cfg.idr.preset.base.id
-                  (toString (builtins.head cfg.services.openssh.ports))
-                  publicKey
-                ]
-                ++ lib.optionals (sopsFile != null) [
-                  "--sops-file"
-                  (lib.removePrefix "${self}/" (toString sopsFile))
-                ]);
-              period_seconds = 10;
-              timeout_seconds = 5;
-              # Allow 30 days for image builds and booting, including the first immediate probe.
-              failure_threshold = builtins.div (30 * 24 * 60 * 60) 10 + 1;
-            });
-          };
+        "vm-${machineName}" = {
+          command = ''
+            exec ${lib.getExe pkgs.nix} ${lib.optionalString pkgs.stdenv.hostPlatform.isLinux "--offline "}-L run ${lib.escapeShellArg "${self}#vm-${machineName}"} -- "$@"
+          '';
+          availability.restart = "no";
+          disabled = true;
+          namespace = "vm-${machineName}";
+          readiness_probe = lib.mkIf (cfg.services.openssh.enable && publicKey != null) (lib.mkDefault {
+            exec.command = lib.escapeShellArgs ([
+                (lib.getExe sshReadiness)
+                cfg.idr.qemu.networkPrefix
+                cfg.idr.preset.base.id
+                (toString (builtins.head cfg.services.openssh.ports))
+                publicKey
+              ]
+              ++ lib.optionals (sopsFile != null) [
+                "--sops-file"
+                (lib.removePrefix "${self}/" (toString sopsFile))
+              ]);
+            period_seconds = 10;
+            timeout_seconds = 5;
+            # Allow 30 days for image builds and booting, including the first immediate probe.
+            failure_threshold = builtins.div (30 * 24 * 60 * 60) 10 + 1;
+          });
+        };
       })
       machineConfigurations;
 
@@ -235,7 +228,7 @@ top: {
       '';
   in {
     devshells.default.idr.additionalPaths =
-      lib.optionals pkgs.stdenv.hostPlatform.isDarwin [hostRuntime]
+      [hostRuntime]
       ++ lib.optionals (
         pkgs.stdenv.hostPlatform.isLinux
         && lib.any (machine: machine.pkgs.stdenv.hostPlatform.system != hostLinuxSystem) (builtins.attrValues imageConfigurations)

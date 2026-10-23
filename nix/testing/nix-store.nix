@@ -4,14 +4,15 @@ top: {
   lib,
   ...
 }: let
-  inherit (config.idr.test) storePaths;
+  requestedPaths = config.idr.test.storePaths;
+  storePaths = requestedPaths ++ lib.concatMap (path: builtins.attrValues (path.passthru.deps or {})) requestedPaths;
 in {
   imports = [top.self.modules.nixosTest.disk-storage];
 
   options.idr.test.storePaths = lib.mkOption {
     type = lib.types.listOf lib.types.package;
     default = [];
-    description = "Store paths whose closures are registered in each node's Nix database, so they can be used offline.";
+    description = "Store paths, including their passthru.deps, whose closures are registered in each node's Nix database for offline use.";
   };
 
   config = {

@@ -148,3 +148,20 @@ Formatting failures reject the commit; stage the formatted changes and commit
 again. A custom `core.hooksPath` is left under your control.
 
 To include enabled hooks in flake checks, set `pre-commit.check.enable = true`.
+
+### Offline prerequisites
+
+The default package contains the tools; Linux installer and example-machine build
+dependencies are separate. To prebuild them locally or in CI:
+
+```sh
+nix build .#default \
+  .#default.passthru.deps.nixos-image \
+  .#default.passthru.deps.example-machine
+```
+
+Shell entry builds these dependencies in parallel and roots them under
+`$IDR_GCROOT` (`$PRJ_DATA_DIR/<host-id>/gcroot`). `TMPDIR`, `TMP`, and `TEMP`
+point to `$PRJ_DATA_DIR/<host-id>/tmp`; both directories are created on entry.
+With unchanged IDR inputs, project edits reuse the same dependencies and their
+separate evaluation cache.

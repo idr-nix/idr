@@ -259,7 +259,8 @@ in
       allInputs = lib.concatMap (go []) (lib.attrValues (builtins.removeAttrs inputs ["self"]));
       collected =
         lib.foldl' (acc: input: let
-          key = builtins.unsafeDiscardStringContext (toString input);
+          # Hash lazy-tree paths before using them as attribute keys.
+          key = builtins.unsafeDiscardStringContext (builtins.hashString "sha256" (toString input));
         in
           if acc.seen ? ${key}
           then acc

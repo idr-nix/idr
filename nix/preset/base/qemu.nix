@@ -258,8 +258,6 @@ in {
       passthru = {
         inherit installer;
         runtime = qemuCfg.runtimePackage;
-        # Embed machine data in Process Compose's config without depending on
-        # the standalone wrapper, whose path changes with the project snapshot.
         processCompose = {
           command = runtimeCommand;
           commandFor = runtimeCommandFor;
