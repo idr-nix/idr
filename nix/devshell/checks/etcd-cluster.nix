@@ -6,7 +6,10 @@ top: {lib, ...}: {
       defaults = {pkgs, ...}: {environment.systemPackages = [pkgs.curl];};
       nodes =
         (lib.genAttrs ["alpha" "beta" "gamma"] (name: {
-          idr.etcd.instances.${name}.allowedIPs = lib.mkForce ["192.168.1.0/30" "2001:db8:1::/126"];
+          idr.etcd.instances.${name} = {
+            allowedIPs = lib.mkForce ["192.168.1.0/30" "2001:db8:1::/126"];
+            autoCompactionRetention = "5s";
+          };
         }))
         // {
           outsider.networking.interfaces.eth1.ipv6.addresses = [
@@ -49,6 +52,21 @@ top: {lib, ...}: {
                     f"ETCDCTL_ENDPOINTS=https://etcd-{name}.example.test:2379 etcdctl "
                     "get /application/persistent --print-value-only"
                 ).strip() == "before-reboot"
+
+        with subtest("automatically compact old revisions while retaining current values"):
+            original = json.loads(alpha.succeed("etcdctl put /application/compaction old --write-out=json"))
+            revision = original["header"]["revision"]
+            alpha.succeed("etcdctl put /application/compaction current")
+            alpha.wait_until_succeeds(
+                f"(etcdctl get /application/compaction --rev={revision} 2>&1 || true) "
+                '| grep -F "etcdserver: mvcc: required revision has been compacted"',
+                timeout=30,
+            )
+            for name, machine in members.items():
+                assert machine.succeed(
+                    f"ETCDCTL_ENDPOINTS=https://etcd-{name}.example.test:2379 etcdctl "
+                    "get /application/compaction --print-value-only"
+                ).strip() == "current"
 
         with subtest("allow configured IPv4 and IPv6 clients and refuse clients outside allowedIPs"):
             outsider.wait_for_unit("multi-user.target")

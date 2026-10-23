@@ -106,6 +106,11 @@ in {
             type = types.path;
             description = "Existing persistent directory or mounted dataset for member data.";
           };
+          autoCompactionRetention = mkOption {
+            type = types.str;
+            default = "24h";
+            description = "Revision history retention; 0 disables automatic compaction.";
+          };
           cert = mkOption {
             type = secret;
             description = "Client endpoint TLS certificate chain in PEM format.";

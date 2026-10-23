@@ -143,6 +143,9 @@ in {
           environment = {
             ETCD_NAME = name;
             ETCD_DATA_DIR = "/var/lib/${unitName}";
+            ETCD_AUTO_COMPACTION_MODE = "periodic";
+            ETCD_AUTO_COMPACTION_RETENTION = instance.autoCompactionRetention;
+            ETCD_WATCH_PROGRESS_NOTIFY_INTERVAL = "5s";
             ETCD_CERT_FILE = "${credentials}/cert";
             ETCD_KEY_FILE = "${credentials}/cert-key";
             ETCD_INITIAL_CLUSTER_TOKEN = instance.clusterToken;
