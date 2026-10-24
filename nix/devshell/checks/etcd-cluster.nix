@@ -5,10 +5,31 @@ top: {lib, ...}: {
       name = "etcd-cluster";
       defaults = {pkgs, ...}: {environment.systemPackages = [pkgs.curl];};
       nodes =
-        (lib.genAttrs ["alpha" "beta" "gamma"] (name: {
-          idr.etcd.instances.${name} = {
+        (lib.genAttrs ["alpha" "beta" "gamma"] (name: {config, ...}: {
+          idr.etcd.clusters.main.instances.${name} = {
             allowedIPs = lib.mkForce ["192.168.1.0/30" "2001:db8:1::/126"];
             autoCompactionRetention = "5s";
+          };
+          idr.etcd.clusters.test.instances.${name} = {
+            dataDir = "/p1/etcd-test-${name}";
+            cert = config.idr.secrets."${name}-cert";
+            certKey = config.idr.secrets."${name}-cert-key";
+            clusterToken = "public-documentation-test";
+            publicHostname = "etcd-${name}.example.test";
+            publicPort = 2381;
+            allowedIPs = ["192.168.1.0/24"];
+            peers = lib.genAttrs (lib.filter (peer: peer != name) ["alpha" "beta" "gamma"]) (_: {});
+          };
+          virtualisation.emptyDiskImages = [
+            {
+              size = 256;
+              driveConfig.deviceExtraOpts.serial = "etcd-test-data";
+            }
+          ];
+          fileSystems."/p1/etcd-test-${name}" = {
+            device = "/dev/disk/by-id/virtio-etcd-test-data";
+            fsType = "ext4";
+            autoFormat = true;
           };
         }))
         // {
@@ -25,9 +46,12 @@ top: {lib, ...}: {
 
         start_all()
         members = {"alpha": alpha, "beta": beta, "gamma": gamma}
+        test_client = "ETCDCTL_ENDPOINTS=https://etcd-alpha.example.test:2381 etcdctl "
         for name, machine in members.items():
-            machine.wait_for_unit(f"idr-etcd-{name}.service")
+            machine.wait_for_unit(f"idr-etcd-main@{name}.service")
+            machine.wait_for_unit(f"idr-etcd-test@{name}.service")
         alpha.wait_until_succeeds("etcdctl endpoint health --cluster")
+        alpha.wait_until_succeeds(test_client + "endpoint health --cluster")
 
         with subtest("bootstrap three HTTPS members connected through WireGuard"):
             listing = json.loads(alpha.succeed("etcdctl member list --write-out=json"))["members"]
@@ -45,13 +69,30 @@ top: {lib, ...}: {
                 assert len(handshakes) == 2
                 assert all(int(line.split()[1]) > 0 for line in handshakes)
                 machine.succeed(f"mountpoint /p1/etcd-{name}")
-                machine.succeed(f"mountpoint /var/lib/private/idr-etcd-{name}")
+                machine.succeed(f"mountpoint /var/lib/private/idr-etcd-main@{name}")
             alpha.succeed("etcdctl put /application/persistent before-reboot")
             for name, machine in members.items():
                 assert machine.succeed(
                     f"ETCDCTL_ENDPOINTS=https://etcd-{name}.example.test:2379 etcdctl "
                     "get /application/persistent --print-value-only"
                 ).strip() == "before-reboot"
+
+        with subtest("isolate clusters with the same member names on one WireGuard interface"):
+            test_listing = json.loads(alpha.succeed(test_client + "member list --write-out=json"))["members"]
+            assert {member["name"] for member in test_listing} == set(members)
+            assert not {
+                url for member in listing for url in member["peerURLs"]
+            } & {url for member in test_listing for url in member["peerURLs"]}
+            alpha.succeed(test_client + "put /application/persistent second-cluster")
+            for name, machine in members.items():
+                assert machine.succeed("wg show interfaces").strip() == "idr-etcd-wg"
+                machine.succeed(f"mountpoint /p1/etcd-test-{name}")
+                machine.succeed(f"mountpoint /var/lib/private/idr-etcd-test@{name}")
+                for port, expected in [(2379, "before-reboot"), (2381, "second-cluster")]:
+                    assert machine.succeed(
+                        f"ETCDCTL_ENDPOINTS=https://etcd-{name}.example.test:{port} etcdctl "
+                        "get /application/persistent --print-value-only"
+                    ).strip() == expected
 
         with subtest("automatically compact old revisions while retaining current values"):
             original = json.loads(alpha.succeed("etcdctl put /application/compaction old --write-out=json"))
@@ -94,7 +135,7 @@ top: {lib, ...}: {
                 f"{endpoint} etcdctl get /application/persistent --print-value-only"
             ).strip() == "before-reboot"
             leader.start()
-            leader.wait_for_unit(f"idr-etcd-{leader_name}.service")
+            leader.wait_for_unit(f"idr-etcd-main@{leader_name}.service")
             leader.wait_until_succeeds("etcdctl endpoint health --cluster")
             assert leader.succeed(
                 f"ETCDCTL_ENDPOINTS=https://etcd-{leader_name}.example.test:2379 etcdctl "
@@ -110,10 +151,13 @@ top: {lib, ...}: {
                     shutdown.result()
             start_all()
             for name, machine in members.items():
-                machine.wait_for_unit(f"idr-etcd-{name}.service")
+                machine.wait_for_unit(f"idr-etcd-main@{name}.service")
+                machine.wait_for_unit(f"idr-etcd-test@{name}.service")
             alpha.wait_until_succeeds("etcdctl endpoint health --cluster")
+            alpha.wait_until_succeeds(test_client + "endpoint health --cluster")
             assert alpha.succeed("etcdctl get /application/persistent --print-value-only").strip() == "before-reboot"
             assert alpha.succeed("etcdctl get /application/quorum --print-value-only").strip() == "leader-replaced"
+            assert alpha.succeed(test_client + "get /application/persistent --print-value-only").strip() == "second-cluster"
       '';
     };
   };

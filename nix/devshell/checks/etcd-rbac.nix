@@ -4,31 +4,36 @@ top: {lib, ...}: {
       imports = [(lib.modules.importApply ./etcd-auth-fixture.nix {inherit top;})];
       name = "etcd-rbac";
       nodes.alpha = {config, ...}: let
-        updatedRBAC = [
-          {
-            endpoints = map (name: {domain = "etcd-${name}.example.test";}) ["alpha" "beta" "gamma"];
-            caCert = ./fixtures/etcd/ca.pem;
-            rootPassword = config.idr.secrets.root-password;
-            roles.audit.permissions = [{target = "/status";}];
-            roles.application.permissions = [
-              {
-                target = "/application/";
-                prefix = true;
-              }
-            ];
-            users.application = {
-              password = config.idr.secrets.application-password;
-              roles = ["application"];
-            };
-          }
-        ];
+        updatedRBAC = {
+          endpoints = map (name: {domain = "etcd-${name}.example.test";}) ["alpha" "beta" "gamma"];
+          caCert = ./fixtures/etcd/ca.pem;
+          rootPassword = config.idr.secrets.root-password;
+          roles.audit.permissions = [{target = "/status";}];
+          roles.application.permissions = [
+            {
+              target = "/application/";
+              prefix = true;
+            }
+          ];
+          users.application = {
+            password = config.idr.secrets.application-password;
+            roles = ["application"];
+          };
+        };
       in {
         # Generation switching registers its closure in the guest store.
         virtualisation.writableStore = true;
+        idr.etcd.clusters.main.rbac = {
+          roles.monitor.permissions = [{target = "/status";}];
+          users.monitor = {
+            password = config.idr.secrets.application-password;
+            roles = ["monitor"];
+          };
+        };
         specialisation = {
-          permissions.configuration.idr.etcd.rbac = lib.mkForce updatedRBAC;
+          permissions.configuration.idr.etcd.clusters.main.rbac = lib.mkForce updatedRBAC;
           password.configuration = {
-            idr.etcd.rbac = lib.mkForce updatedRBAC;
+            idr.etcd.clusters.main.rbac = lib.mkForce updatedRBAC;
             idr.secrets-source.application-password.sopsFile = lib.mkForce ./fixtures/etcd/updated.enc.json;
           };
         };
@@ -38,14 +43,28 @@ top: {lib, ...}: {
 
         start_all()
         for name, machine in [("alpha", alpha), ("beta", beta), ("gamma", gamma)]:
-            machine.wait_for_unit(f"idr-etcd-{name}.service")
+            machine.wait_for_unit(f"idr-etcd-main@{name}.service")
         admin = "etcdctl --user=root:public-test-root "
         application = "etcdctl --user=application:public-test-application "
         alpha.wait_until_succeeds(admin + "user get application")
-        controller = alpha.succeed("systemctl list-units 'idr-etcd-rbac-*' --no-legend --plain | awk '{print $1}'").strip()
-        assert controller.startswith("idr-etcd-rbac-")
+        controller = "idr-etcd-rbac-main.service"
         alpha.wait_for_unit(controller)
         alpha.succeed(application + "put /application/message initial")
+
+        with subtest("merge RBAC users and roles from separate modules into one controller"):
+            assert alpha.succeed(
+                "systemctl list-units 'idr-etcd-rbac-*' --no-legend --plain | awk '{print $1}'"
+            ).splitlines() == [controller]
+            assert json.loads(alpha.succeed(admin + "user list --write-out=json"))["users"] == [
+                "application", "monitor", "retired", "root"
+            ]
+            assert json.loads(alpha.succeed(admin + "role list --write-out=json"))["roles"] == [
+                "application", "audit", "monitor", "retired", "root"
+            ]
+            monitor = "etcdctl --user=monitor:public-test-application "
+            alpha.succeed(admin + "put /status healthy")
+            assert alpha.succeed(monitor + "get /status --print-value-only").strip() == "healthy"
+            alpha.fail(monitor + "put /status denied", monitor + "get /application/message")
 
         with subtest("enforce prefix, exact-key, and half-open range permissions"):
             alpha.fail("etcdctl get /application/message")

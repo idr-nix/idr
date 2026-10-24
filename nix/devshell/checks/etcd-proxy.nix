@@ -3,9 +3,9 @@ top: {lib, ...}: {
     checks.etcd-proxy = pkgs.testers.runNixOSTest {
       imports = [(lib.modules.importApply ./etcd-auth-fixture.nix {inherit top;})];
       name = "etcd-proxy";
-      nodes.alpha.systemd.services.idr-etcd-alpha.environment.ETCD_AUTH_TOKEN_TTL = "15";
-      nodes.beta.systemd.services.idr-etcd-beta.environment.ETCD_AUTH_TOKEN_TTL = "15";
-      nodes.gamma.systemd.services.idr-etcd-gamma.environment.ETCD_AUTH_TOKEN_TTL = "15";
+      nodes.alpha.systemd.services."idr-etcd-main@alpha".environment.ETCD_AUTH_TOKEN_TTL = "15";
+      nodes.beta.systemd.services."idr-etcd-main@beta".environment.ETCD_AUTH_TOKEN_TTL = "15";
+      nodes.gamma.systemd.services."idr-etcd-main@gamma".environment.ETCD_AUTH_TOKEN_TTL = "15";
       nodes.proxy = {
         idr.etcd.proxy.application = {
           endpoints = [
@@ -32,9 +32,8 @@ top: {lib, ...}: {
 
         start_all()
         for name, machine in [("alpha", alpha), ("beta", beta), ("gamma", gamma)]:
-            machine.wait_for_unit(f"idr-etcd-{name}.service")
-        controller = alpha.succeed("systemctl list-units 'idr-etcd-rbac-*' --no-legend --plain | awk '{print $1}'").strip()
-        alpha.wait_for_unit(controller)
+            machine.wait_for_unit(f"idr-etcd-main@{name}.service")
+        alpha.wait_for_unit("idr-etcd-rbac-main.service")
         proxy.wait_for_unit("idr-etcd-proxy-application.service")
         local = "env -u ETCDCTL_CACERT ETCDCTL_ENDPOINTS=http://application.etcd.internal:65535 etcdctl "
         application = local + "--user=application:public-test-application "

@@ -138,11 +138,11 @@ in {
             };
             pubKey = publicKeys.${peer};
             psk = config.idr.secrets."${pair peer}-psk";
-            etcdPeers = [peer];
+            etcdPeers = lib.genAttrs (builtins.attrNames config.idr.etcd.clusters) (_: [peer]);
           })
           others;
       };
-      instances.${name} = {
+      clusters.main.instances.${name} = {
         dataDir = "/p1/etcd-${name}";
         cert = config.idr.secrets."${name}-cert";
         certKey = config.idr.secrets."${name}-cert-key";

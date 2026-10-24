@@ -9,9 +9,10 @@ top: {
   userCredential = name: "user-${top.idr-lib.shortHash 16 name}";
 in {
   config = lib.mkIf cfg.enable {
-    systemd.services = builtins.listToAttrs (map (rbac: let
+    systemd.services = lib.mapAttrs' (clusterName: cluster: let
+      rbac = cluster.rbac;
       endpoints = lib.concatStringsSep "," (map (endpoint: "https://${top.idr-lib.normalizeHost endpoint.domain}:${toString endpoint.port}") rbac.endpoints);
-      name = "idr-etcd-rbac-${top.idr-lib.shortHash 8 endpoints}";
+      name = "idr-etcd-rbac-${clusterName}";
       passwords = [rbac.rootPassword] ++ map (user: user.password) (lib.attrValues rbac.users);
       restartTargets = lib.unique (map (password: password.restartTarget) passwords);
       settings = pkgs.writers.writeJSON "${name}.json" {
@@ -59,6 +60,6 @@ in {
           UMask = "0077";
         };
       })
-    cfg.rbac);
+    (lib.filterAttrs (_: cluster: cluster.rbac != null) cfg.clusters);
   };
 }
