@@ -11,6 +11,7 @@ top: {
     # Remote derivation copies should honor the same signature policy as local deployments.
     patches = (old.patches or []) ++ [./remote-build-signatures.patch];
   });
+  nixos-anywhere = pkgs.callPackage ./nixos-anywhere-package.nix {};
 
   idr-unlock-disks =
     pkgs.writers.writeNuBin "idr-unlock-disks" {
@@ -29,7 +30,7 @@ top: {
   idr-anywhere =
     pkgs.writers.makeScriptWriter {
       interpreter = "${lib.getExe idrNu} --no-config-file";
-      makeWrapperArgs = ["--prefix" "PATH" ":" (lib.makeBinPath [pkgs.coreutils pkgs.gitMinimal pkgs.nix pkgs.sops idrSsh pkgs.sshpass pkgs.nixos-anywhere])];
+      makeWrapperArgs = ["--prefix" "PATH" ":" (lib.makeBinPath [pkgs.coreutils pkgs.gitMinimal pkgs.nix pkgs.sops idrSsh pkgs.sshpass nixos-anywhere])];
     } "/bin/idr-anywhere" ''
       source ${scripts}/idr-anywhere.nu
     '';

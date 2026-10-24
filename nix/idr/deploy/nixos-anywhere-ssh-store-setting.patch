@@ -1,0 +1,11 @@
+diff --git a/src/nixos-anywhere.sh b/src/nixos-anywhere.sh
+--- a/src/nixos-anywhere.sh
++++ b/src/nixos-anywhere.sh
+@@ -284,7 +284,6 @@
+       value=$2
+       shift
+       sshStoreSettings+="&$key=$value"
+-      shift
+       ;;
+     --post-kexec-ssh-port)
+       postKexecSshPort=$2
