@@ -18,17 +18,17 @@ idr.etcd = {
         endpoint = { address = "192.0.2.12"; port = 61010; };
         pubKey = "<beta WireGuard public key>";
         psk = config.idr.secrets.etcd-alpha-beta-psk;
-        etcdPeers = ["beta"];
+        etcdPeers.main = ["beta"];
       }
       {
         endpoint = { address = "2001:db8::13"; port = 61010; };
         pubKey = "<gamma WireGuard public key>";
         psk = config.idr.secrets.etcd-alpha-gamma-psk;
-        etcdPeers = ["gamma"];
+        etcdPeers.main = ["gamma"];
       }
     ];
   };
-  instances.alpha = {
+  clusters.main.instances.alpha = {
     dataDir = "/p1/etcd-alpha";
     cert = config.idr.secrets.etcd-cert;
     certKey = config.idr.secrets.etcd-cert-key;
@@ -42,17 +42,16 @@ idr.etcd = {
 ```
 
 Configure the other hosts with their own member names, certificates, WireGuard
-keys, and peer lists. Use the same `clusterToken` across the cluster and the
-same preshared key for each pair of hosts.
-Member names determine their private IPv6 addresses and must be unique across
-clusters sharing the network.
+keys, and peer lists. Use the same cluster name and `clusterToken` within a
+cluster, and the same preshared key for each pair of hosts.
 
 Create and mount the `dataDir` dataset in the machine configuration. The module
-bind-mounts it at `/var/lib/private/idr-etcd-<name>` and runs etcd with
+bind-mounts it into the member's private state directory and runs etcd with
 `DynamicUser` and `StateDirectory`. See [persistent storage](../preset/README.md#persistent-data).
 
 Members retain about 24 hours of revision history; current values remain.
-Configure `instances.<name>.autoCompactionRetention` (`"0"` disables compaction).
+Configure `clusters.<cluster>.instances.<name>.autoCompactionRetention`
+(`"0"` disables compaction).
 
 Use `etcdctl watch --progress-notify` or the equivalent client option for idle
 progress updates about every five seconds.
@@ -67,26 +66,24 @@ when adding or removing members.
 
 ### Users and roles
 
-Configure one RBAC controller per cluster. For example:
+Configure RBAC on one host per cluster. For example:
 
 ```nix
-idr.etcd.rbac = [
-  {
-    endpoints = [
-      { domain = "etcd-alpha.example.com"; }
-      { domain = "etcd-beta.example.com"; }
-      { domain = "etcd-gamma.example.com"; }
-    ];
-    rootPassword = config.idr.secrets.etcd-root-password;
-    roles.application.permissions = [
-      { target = "/application/"; prefix = true; access = "readwrite"; }
-    ];
-    users.application = {
-      password = config.idr.secrets.etcd-application-password;
-      roles = ["application"];
-    };
-  }
-];
+idr.etcd.clusters.main.rbac = {
+  endpoints = [
+    { domain = "etcd-alpha.example.com"; }
+    { domain = "etcd-beta.example.com"; }
+    { domain = "etcd-gamma.example.com"; }
+  ];
+  rootPassword = config.idr.secrets.etcd-root-password;
+  roles.application.permissions = [
+    { target = "/application/"; prefix = true; access = "readwrite"; }
+  ];
+  users.application = {
+    password = config.idr.secrets.etcd-application-password;
+    roles = ["application"];
+  };
+};
 ```
 
 The controller enables authentication in a new cluster and applies user

@@ -5,7 +5,11 @@ top: {
   ...
 }: let
   cfg = config.idr.etcd;
-  instances = lib.filterAttrs (_: instance: instance.enable) cfg.instances;
+  instances = lib.listToAttrs (lib.concatLists (lib.mapAttrsToList (clusterName: cluster:
+    lib.mapAttrsToList (name: instance:
+      lib.nameValuePair "${clusterName}@${name}" (instance // {inherit name;}))
+    (lib.filterAttrs (_: instance: instance.enable) cluster.instances))
+  cfg.clusters));
   interface = "idr-etcd-wg";
   deviceUnit = "sys-subsystem-net-devices-${utils.escapeSystemdPath interface}.device";
   networkSecrets =
@@ -89,7 +93,9 @@ in {
           lib.imap0 (index: peer: {
             PublicKey = peer.pubKey;
             PresharedKey = "@idr-etcd-peer-${toString index}";
-            AllowedIPs = map (name: "${top.idr-lib.mkIPv6 "fdc1:ae6a:1782" name}/128") peer.etcdPeers;
+            AllowedIPs = lib.concatLists (lib.mapAttrsToList (cluster: names:
+              map (name: "${top.idr-lib.mkIPv6 cfg.privateNetwork.ipv6Prefix (builtins.toJSON [cluster name])}/128") names)
+            peer.etcdPeers);
             Endpoint = "${top.idr-lib.normalizeHost peer.endpoint.address}:${toString peer.endpoint.port}";
           })
           cfg.privateNetwork.peers;
@@ -141,7 +147,7 @@ in {
           after = [deviceUnit "network.target"] ++ targets;
           partOf = targets;
           environment = {
-            ETCD_NAME = name;
+            ETCD_NAME = instance.name;
             ETCD_DATA_DIR = "/var/lib/${unitName}";
             ETCD_AUTO_COMPACTION_MODE = "periodic";
             ETCD_AUTO_COMPACTION_RETENTION = instance.autoCompactionRetention;
@@ -150,7 +156,7 @@ in {
             ETCD_KEY_FILE = "${credentials}/cert-key";
             ETCD_INITIAL_CLUSTER_TOKEN = instance.clusterToken;
             ETCD_INITIAL_CLUSTER = lib.concatStringsSep "," (
-              ["${name}=${peerURL instance.address}"]
+              ["${instance.name}=${peerURL instance.address}"]
               ++ lib.mapAttrsToList (name: peer: "${name}=${peerURL peer.address}") instance.peers
             );
             ETCD_INITIAL_ADVERTISE_PEER_URLS = peerURL instance.address;
