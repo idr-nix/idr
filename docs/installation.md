@@ -41,16 +41,26 @@ IDR supplies the configured disk-encryption keys and post-format files from SOPS
 Configure additional installation files through `idr.preset.base.preFormatFiles`
 and `postFormatFiles`.
 
+### Reuse existing filesystems
+
+```sh
+idr-anywhere some-machine --disko-mode mount
+```
+
+This defaults to `--phases disko,install`, without formatting, wipe fallback,
+wipe confirmations, or automatic hardware reports. Filesystems must already
+exist; encrypted devices must accept the configured key or already be unlocked.
+
 ### Confirm disk operations
 
-The command prints the target address and configured disks before requesting
+Default mode prints the target address and configured disks before requesting
 confirmation. It first tries Disko's `format,mount` operation, which can reuse
 matching layouts. If that fails, it falls back to a full wipe of the configured
 disks. Existing data is therefore not guaranteed to survive.
 
 | Confirmation | Required when |
 |---|---|
-| `WIPE_ALL_DISKS` | Always; authorizes wiping all disks in the target configuration. |
+| `WIPE_ALL_DISKS` | Default mode; authorizes wiping all disks in the target configuration. |
 | `WIPE_LINUX` | Those disks are in use by the running non-NixOS Linux environment. |
 | `WIPE_NIXOS` | Those disks are in use by the running NixOS environment. |
 
@@ -83,8 +93,9 @@ idr-anywhere some-machine --build-on remote -L
 
 ### First boot
 
-After installation, the machine reboots. Unlock encrypted disks through the
-initrd SSH server:
+The default mode reboots after installation. Mount mode leaves recovery running;
+unmount the target filesystems and export ZFS pools before rebooting manually.
+Unlock encrypted disks through the initrd SSH server:
 
 ```sh
 idr-unlock-disks some-machine

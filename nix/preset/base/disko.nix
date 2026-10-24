@@ -84,7 +84,7 @@ in {
         machineId = cfg.base.id;
         system = pkgs.stdenv.hostPlatform.system;
         inherit (cfg.base) defaultSopsFile;
-        inherit (config.system.build) formatMount diskoScript toplevel;
+        inherit (config.system.build) formatMount diskoScript mountScript mountScriptNoDeps toplevel;
         nixSettings = {inherit (config.nix.settings) substituters trusted-public-keys;};
         sshHostPublicKey = defaultSopsContent.ssh_host_ed25519_key_pub_unencrypted or null;
         initrdHostPublicKey = defaultSopsContent.initrd_ssh_host_ed25519_key_pub_unencrypted or null;

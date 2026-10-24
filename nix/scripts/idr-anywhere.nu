@@ -10,6 +10,7 @@ def installation-options [arguments: list<string>] {
   mut env_password = false
   mut identity_file = null
   mut generates_hardware = false
+  mut has_phases = false
   mut index = 0
   while $index < ($arguments | length) {
     let option = $arguments | get $index
@@ -44,11 +45,15 @@ def installation-options [arguments: list<string>] {
         $generates_hardware = true
         $anywhere = $anywhere ++ $current
       }
+      "--phases" | "--no-reboot" | "--stop-after-disko" => {
+        $has_phases = true
+        $anywhere = $anywhere ++ $current
+      }
       _ => { $anywhere = $anywhere ++ $current }
     }
     $index += $count
   }
-  {ssh: $ssh, anywhere: $anywhere, env_password: $env_password, identity_file: $identity_file, generates_hardware: $generates_hardware}
+  {ssh: $ssh, anywhere: $anywhere, env_password: $env_password, identity_file: $identity_file, generates_hardware: $generates_hardware, has_phases: $has_phases}
 }
 
 def installation-ssh-config [arguments: list<string>, directory: path] {
@@ -120,7 +125,7 @@ def installation-ssh-config [arguments: list<string>, directory: path] {
   {config: $config, user: $connection.user, port: $connection.port}
 }
 
-def with-installation-flake [node: string, target: record, directory: path, callback: closure, --live-project] {
+def with-installation-flake [node: string, target: record, directory: path, callback: closure, --live-project, --disko-mode: string = "disko"] {
   let directory = $directory | path expand --strict | path join "installation"
   let project_root = $env.PRJ_ROOT | path expand --strict
   let relative_directory = if $live_project {
@@ -146,7 +151,7 @@ def with-installation-flake [node: string, target: record, directory: path, call
     mkdir $directory
     cp $installation_file ($directory | path join "idr-anywhere.nix")
     cp ($installation_file | path dirname | path join "idr-target.nix") ($directory | path join "idr-target.nix")
-    {node: $node, projectRoot: $project_root, expectedDisks: $target.disks}
+    {node: $node, projectRoot: $project_root, expectedDisks: $target.disks, diskoMode: $disko_mode}
       | to json | save ($directory | path join "target.json")
     '
 {
@@ -226,11 +231,15 @@ def --wrapped main [
   --host: string
   --user: string
   --port(-p): int
+  --disko-mode: string = "disko" # disko: format with wipe fallback; mount: use existing filesystems
   --substitute-on-destination # Allow the target to download paths from its binary caches
   --no-substitute-on-destination # Copy paths directly from the local store
   --help(-h)
   ...nixos_anywhere_options: string
 ] {
+  if $disko_mode not-in [disko mount] {
+    error make {msg: "Unsupported disko mode. Use disko or mount."}
+  }
   let allowed = $allow | split row "," | str trim | where {|value| $value != "" } | uniq
   let unknown = $allowed | where {|value| $value not-in [WIPE_ALL_DISKS WIPE_LINUX WIPE_NIXOS] }
   if not ($unknown | is-empty) {
@@ -267,23 +276,28 @@ def --wrapped main [
     }
     let hostname = $arguments | last
     let status = installation-status $arguments $target.disks --env-password=$options.env_password
-    print $"Will install ($node) on ($hostname), using best-effort formatting with a full-wipe fallback: ($target.disks | str join ', ')."
-    let required = if ($status.used | is-empty) {
-      [WIPE_ALL_DISKS]
+    if $disko_mode == "mount" {
+      print $"Will install ($node) on ($hostname), mounting existing filesystems without formatting: ($target.disks | str join ', ')."
     } else {
-      print $"Disks currently in use by ($status.os): ($status.used | str join ', ')."
-      [WIPE_ALL_DISKS (if $status.os == "nixos" { "WIPE_NIXOS" } else { "WIPE_LINUX" })]
+      print $"Will install ($node) on ($hostname), using best-effort formatting with a full-wipe fallback: ($target.disks | str join ', ')."
+      let required = if ($status.used | is-empty) {
+        [WIPE_ALL_DISKS]
+      } else {
+        print $"Disks currently in use by ($status.os): ($status.used | str join ', ')."
+        [WIPE_ALL_DISKS (if $status.os == "nixos" { "WIPE_NIXOS" } else { "WIPE_LINUX" })]
+      }
+      confirm-installation $required $allowed $non_interactive
     }
-    confirm-installation $required $allowed $non_interactive
 
-    let report = if not $options.generates_hardware and "--vm-test" not-in $options.anywhere {
+    # A mount-only installation may target disks attached to a recovery VM.
+    let report = if $disko_mode != "mount" and not $options.generates_hardware and "--vm-test" not-in $options.anywhere {
       missing-facter-report $target $files.temporary_directory
     }
     let hardware_options = if $report != null {
       ["--generate-hardware-config" "nixos-facter" $report]
     } else { [] }
     let connection = installation-ssh-config $arguments $files.temporary_directory
-    with-installation-flake $node $target $files.temporary_directory --live-project=($options.generates_hardware or $report != null) {|flake|
+    with-installation-flake $node $target $files.temporary_directory --disko-mode=$disko_mode --live-project=($options.generates_hardware or $report != null) {|flake|
       with-env {TMPDIR: $files.temporary_directory, IDR_SSH_CONFIG: $connection.config} {
         # ssh-copy-id uses SSH_OPTS internally, with a different format.
         hide-env --ignore-errors SSH_OPTS
@@ -294,6 +308,8 @@ def --wrapped main [
           ...($pre_format_files | each {|file| ["--disk-encryption-keys" $file.dst $file.src]} | flatten)
           --target-host $"($connection.user)@($hostname)"
           ...$identity
+          --disko-mode $disko_mode
+          ...(if $disko_mode == "mount" and not $options.has_phases { ["--phases" "disko,install"] } else { [] })
           ...$options.anywhere
           ...$hardware_options
           --ssh-port $connection.port)

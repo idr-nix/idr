@@ -7,6 +7,16 @@ top: {lib, ...}: {
     project = config.checks.mk-images;
   in {
     checks = {
+      installation-mount = import ./installation-mount.nix {inherit pkgs;};
+      ${
+        if pkgs.stdenv.hostPlatform.isLinux
+        then "installation-mount-preservation"
+        else null
+      } = import ./installation-mount-preservation.nix {
+        inherit pkgs;
+        diskoModule = top.inputs.disko.nixosModules.disko;
+      };
+
       installation-confirmations = pkgs.testers.runNixOSTest ({config, ...}: let
         inherit (config.node.pkgs.stdenv.hostPlatform) system;
         networkPrefix = top.self.nixosConfigurations."example-${system}".config.idr.qemu.networkPrefix;
