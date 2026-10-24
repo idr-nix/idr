@@ -63,6 +63,7 @@ Start the configured members to bootstrap the cluster. Changing `peers` does
 not update membership in an existing database; use etcd's
 [runtime membership operations](https://etcd.io/docs/v3.6/op-guide/runtime-configuration/)
 when adding or removing members.
+For a member registered with `etcdctl member add`, set `initialClusterState = "existing"`.
 
 ### Users and roles
 
