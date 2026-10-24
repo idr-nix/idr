@@ -202,6 +202,11 @@ in {
                   type = types.str;
                   description = "Bootstrap token shared by all members of this cluster.";
                 };
+                initialClusterState = mkOption {
+                  type = types.enum ["new" "existing"];
+                  default = "new";
+                  description = "Whether an uninitialized member bootstraps a new cluster or joins an existing one.";
+                };
                 publicHostname = mkOption {
                   type = types.str;
                   description = "Advertised client hostname, matching the TLS certificate.";

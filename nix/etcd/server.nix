@@ -155,6 +155,7 @@ in {
             ETCD_CERT_FILE = "${credentials}/cert";
             ETCD_KEY_FILE = "${credentials}/cert-key";
             ETCD_INITIAL_CLUSTER_TOKEN = instance.clusterToken;
+            ETCD_INITIAL_CLUSTER_STATE = instance.initialClusterState;
             ETCD_INITIAL_CLUSTER = lib.concatStringsSep "," (
               ["${instance.name}=${peerURL instance.address}"]
               ++ lib.mapAttrsToList (name: peer: "${name}=${peerURL peer.address}") instance.peers

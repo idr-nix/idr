@@ -67,7 +67,7 @@ in {
             ++ lib.optional (tag == "nix-store") "cache=${config.virtualisation.nixStore9pCache}";
         })
       config.virtualisation.sharedDirectories;
-    # Only the controller that switches generations needs Nix in the guest.
+    # Only nodes that switch generations need Nix in the guest.
     nix.enable = config.virtualisation.writableStore;
     networking.useDHCP = false;
     environment.systemPackages = [pkgs.etcd pkgs.jq pkgs.wireguard-tools];

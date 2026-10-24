@@ -6,6 +6,10 @@ top: {lib, ...}: {
       defaults = {pkgs, ...}: {environment.systemPackages = [pkgs.curl];};
       nodes =
         (lib.genAttrs ["alpha" "beta" "gamma"] (name: {config, ...}: {
+          imports = lib.optional (name == "gamma") {
+            virtualisation.writableStore = true;
+            specialisation.join.configuration.idr.etcd.clusters.main.instances.gamma.initialClusterState = "existing";
+          };
           idr.etcd.clusters.main.instances.${name} = {
             allowedIPs = lib.mkForce ["192.168.1.0/30" "2001:db8:1::/126"];
             autoCompactionRetention = "5s";
@@ -158,6 +162,41 @@ top: {lib, ...}: {
             assert alpha.succeed("etcdctl get /application/persistent --print-value-only").strip() == "before-reboot"
             assert alpha.succeed("etcdctl get /application/quorum --print-value-only").strip() == "leader-replaced"
             assert alpha.succeed(test_client + "get /application/persistent --print-value-only").strip() == "second-cluster"
+
+        with subtest("replace a member with an empty data directory and join the existing cluster"):
+            admin = "ETCDCTL_ENDPOINTS=https://etcd-alpha.example.test:2379 etcdctl "
+            listing = json.loads(alpha.succeed(admin + "member list --write-out=json"))
+            cluster_id = listing["header"]["cluster_id"]
+            removed = next(member for member in listing["members"] if member["name"] == "gamma")
+            gamma.succeed("systemctl stop idr-etcd-main@gamma.service")
+            alpha.wait_until_succeeds(admin + "endpoint health")
+            alpha.succeed(admin + f"member remove {removed['ID']:x}")
+            gamma.succeed("rm -rf /p1/etcd-gamma/member")
+            added = json.loads(alpha.succeed(
+                admin + f"member add gamma --peer-urls='{removed['peerURLs'][0]}' --learner --write-out=json"
+            ))
+            replacement_id = added["member"]["ID"]
+            assert replacement_id != removed["ID"]
+            assert added["header"]["cluster_id"] == cluster_id
+            gamma.succeed("/run/current-system/specialisation/join/bin/switch-to-configuration test", timeout=180)
+            gamma.wait_for_unit("idr-etcd-main@gamma.service")
+            alpha.wait_until_succeeds(admin + f"member promote {replacement_id:x}")
+            alpha.wait_until_succeeds(admin + "endpoint health --cluster")
+            listing = json.loads(alpha.succeed(admin + "member list --write-out=json"))
+            assert listing["header"]["cluster_id"] == cluster_id
+            assert {member["name"] for member in listing["members"]} == set(members)
+            assert next(member["ID"] for member in listing["members"] if member["name"] == "gamma") == replacement_id
+            assert not any(member.get("isLearner", False) for member in listing["members"])
+            assert gamma.succeed(
+                "ETCDCTL_ENDPOINTS=https://etcd-gamma.example.test:2379 etcdctl "
+                "get /application/persistent --print-value-only"
+            ).strip() == "before-reboot"
+            alpha.succeed(admin + "put /application/replacement after-replacement")
+            for name, machine in members.items():
+                assert machine.succeed(
+                    f"ETCDCTL_ENDPOINTS=https://etcd-{name}.example.test:2379 etcdctl "
+                    "get /application/replacement --print-value-only"
+                ).strip() == "after-replacement"
       '';
     };
   };
