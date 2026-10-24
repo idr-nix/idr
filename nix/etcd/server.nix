@@ -149,6 +149,7 @@ in {
           environment = {
             ETCD_NAME = instance.name;
             ETCD_DATA_DIR = "/var/lib/${unitName}";
+            ETCD_FEATURE_GATES = "InitialCorruptCheck=true";
             ETCD_AUTO_COMPACTION_MODE = "periodic";
             ETCD_AUTO_COMPACTION_RETENTION = instance.autoCompactionRetention;
             ETCD_WATCH_PROGRESS_NOTIFY_INTERVAL = "5s";
