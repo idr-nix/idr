@@ -84,7 +84,7 @@ in {
           description = "DNS name for local access to this instance.";
         };
         users = lib.mkOption {
-          type = lib.types.attrsOf (lib.types.submodule (import ./user.nix));
+          type = lib.types.attrsOf (lib.types.submodule ./user.nix);
           default = {};
           description = ''
             Directory users. LDAP fields from non-system team members are supplied as defaults;

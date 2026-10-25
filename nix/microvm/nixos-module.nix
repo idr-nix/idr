@@ -297,7 +297,7 @@ in {
   options.idr.microvm = {
     vms = lib.mkOption {
       description = "Named Cloud Hypervisor VMs with persistent guest-owned boot and storage.";
-      type = lib.types.attrsOf (lib.types.submodule (import ./options.nix {
+      type = lib.types.attrsOf (lib.types.submodule (lib.modules.importApply ./options.nix {
         inherit lib pkgs inputs;
         hostConfig = config;
       }));

@@ -78,11 +78,14 @@ top: {lib, ...}: {
               )
         ''}
         with subtest("export the project archive"):
+            machine.succeed("su - operator -c 'mkdir -p project/docs/generated'")
+            data_paths = machine.succeed(
+                "find /home/operator/project/.data -mindepth 1 -maxdepth 1 ! -name machine-host-key -printf '%f\\n'"
+            ).splitlines()
+            exclusions = " ".join(shlex.quote("--exclude=project/.data/" + path) for path in data_paths)
             machine.succeed(
-                "find /home/operator/project/.data -mindepth 1 -maxdepth 1 ! -name machine-host-key -exec rm -rf {} +"
-            )
-            machine.succeed(
-                "tar -C /home/operator --exclude=project/.git --sort=name --mtime=@0 "
+                "tar -C /home/operator --exclude=project/.git --exclude=project/docs/generated " + exclusions + " "
+                "--sort=name --mtime=@0 "
                 "--owner=1000 --group=1000 --numeric-owner -c project > /tmp/project.tar"
             )
             machine.copy_from_machine("/tmp/project.tar")

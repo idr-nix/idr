@@ -80,7 +80,7 @@ top: {lib, ...}: {
               "nix --offline eval --json .#packages.${system}.default.passthru.deps --apply "
               + shlex.quote("builtins.mapAttrs (_: builtins.toString)")
           ))
-          assert set(expected_roots) == {"example-machine", "nixos-image"}, expected_roots
+          assert set(expected_roots) == {"documentation-inputs", "example-machine", "nixos-image"}, expected_roots
 
           def gcroots():
               registered = [shlex.split(line) for line in machine.succeed("nix-store --gc --print-roots").splitlines()]
@@ -93,27 +93,30 @@ top: {lib, ...}: {
               return targets
 
           with subtest("enter the development shell to warm the Nix cache"):
+              operator("direnv allow")
               environment_checks = (
                   'test "$IDR_GCROOT" = ' + shlex.quote(roots_directory) + '; '
+                  'test "$IDR_TMPDIR" = ' + shlex.quote(temporary_directory) + '; '
                   'test "$TMPDIR" = ' + shlex.quote(temporary_directory) + '; '
                   'test "$TMP" = "$TMPDIR"; test "$TEMP" = "$TMPDIR"; '
                   'test -d "$IDR_GCROOT"; test -d "$TMPDIR"; '
-                  'temporary=$(mktemp); test "''${temporary%/*}" = "$TMPDIR"; rm -- "$temporary"'
+                  'temporary=$(mktemp); test "''${temporary%/*}" = "$TMPDIR"; rm -- "$temporary"; '
+                  '"$IDR_BACKGROUND_BUILD" wait'
               )
-              operator("nix --offline develop -c bash -ec " + shlex.quote(environment_checks))
+              operator("direnv exec . bash -exc " + shlex.quote(environment_checks))
               original_roots = gcroots()
               assert original_roots == expected_roots, original_roots
 
-          with subtest("re-enter the cached shell within two minutes"):
-              operator("timeout --kill-after=5s 120s nix --offline develop -c true", timeout=130)
+          with subtest("re-enter the cached shell within five seconds"):
+              operator("timeout --kill-after=2s 5s direnv exec . true", timeout=10)
               assert gcroots() == original_roots
 
           with subtest("edit the project description"):
               operator("sed -i 's/^  description = .*/  description = \"Reloaded development environment\";/' flake.nix")
               operator("grep -Fx '  description = \"Reloaded development environment\";' flake.nix")
 
-          with subtest("reload the development shell within two minutes"):
-              operator("timeout --kill-after=5s 120s nix --offline develop -c true", timeout=130)
+          with subtest("reload the development shell within fifteen seconds"):
+              operator("timeout --kill-after=3s 15s direnv exec . true", timeout=20)
               assert gcroots() == original_roots
 
           with subtest("restore missing and stale dependency roots offline"):
@@ -122,7 +125,9 @@ top: {lib, ...}: {
                   "ln -sfn -- " + shlex.quote(original_roots["example-machine"]) + " "
                   + shlex.quote(roots_directory + "/nixos-image")
               )
-              operator("nix --offline develop -c true")
+              operator("direnv exec . bash -ec " + shlex.quote(
+                  '"$IDR_BACKGROUND_BUILD" wait ' + " ".join(map(shlex.quote, expected_roots))
+              ))
               assert gcroots() == original_roots
         '';
       });

@@ -1,4 +1,7 @@
-top: scenario: {
+{
+  top,
+  scenario,
+}: {
   config,
   lib,
   ...

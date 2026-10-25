@@ -4,6 +4,10 @@ def --wrapped main [
   $cmd: string = ""
   ...args
 ] {
+  if $cmd not-in ["help" "h" "--help" "-h"] {
+    run-external $env.IDR_BACKGROUND_BUILD ready search-options
+    if $env.LAST_EXIT_CODE != 0 { exit $env.LAST_EXIT_CODE }
+  }
   let data_dir = host-data-dir
   mkdir $data_dir
   cd $data_dir

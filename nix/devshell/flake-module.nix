@@ -47,6 +47,7 @@ top: {flake-parts-lib, ...}: {
     ./checks/development-shell-tools.nix
     ./checks/devshell-partial-secret-access.nix
     ./checks/devshell-reload.nix
+    ./checks/background-builds.nix
     ./checks/development-shell-startup-ordering.nix
     ./checks/development-process-controls.nix
     ./checks/development-process-ui.nix

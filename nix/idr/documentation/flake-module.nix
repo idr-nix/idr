@@ -545,11 +545,11 @@ in {
 
     config = lib.mkIf cfg.enable {
       devshells.default = flake-parts-lib.importApply ./devshell.nix {
-        inherit (cfg) mk-docs;
-        inherit idr-generate-docs;
+        nixdocPackage = cfg.nixdoc.package;
       };
 
       packages = {
+        inherit idr-generate-docs;
         idr-mk-docs =
           cfg.mk-docs.overrideAttrs
           (prevAttrs: {

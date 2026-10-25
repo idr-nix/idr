@@ -1,4 +1,4 @@
-_: {
+top: {
   lib,
   inputs,
   flake-parts-lib,
@@ -28,7 +28,7 @@ _: {
       packages.idr-nix-search-tv-config = searchConfig;
       devshells.default =
         lib.mkIf cfg.enable
-        (lib.modules.importApply ./devshell.nix {inherit searchConfig;});
+        (lib.modules.importApply ./devshell.nix top);
     };
   });
 }

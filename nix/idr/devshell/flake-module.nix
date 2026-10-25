@@ -52,7 +52,16 @@ top: args @ {
     };
 
     devshells.default = {
-      imports = [top.self.modules.devshell.idr];
+      imports = [
+        top.self.modules.devshell.idr
+        (lib.modules.importApply ./background.nix {
+          idr = top.self;
+          project = self;
+          inherit system;
+          documentation = config.idr.documentation.enable;
+          searchOptions = config.idr.nix-search-tv.enable;
+        })
+      ];
       devshell.prj_root_fallback.value = toString self;
       env = [
         {

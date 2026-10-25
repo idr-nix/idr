@@ -1,4 +1,4 @@
-{searchConfig}: {pkgs, ...}: let
+top: {pkgs, ...}: let
   scripts = ../../scripts;
   search = pkgs.writeShellApplication {
     name = "nix-search-tv";
@@ -15,7 +15,7 @@ in {
     }
     {
       name = "IDR_NIX_SEARCH_TV_CONFIG_PATH";
-      value = searchConfig;
+      eval = ''"$IDR_GCROOT/search-options"'';
     }
   ];
   commands = [

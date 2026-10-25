@@ -151,17 +151,24 @@ To include enabled hooks in flake checks, set `pre-commit.check.enable = true`.
 
 ### Offline prerequisites
 
-The default package contains the tools; Linux installer and example-machine build
-dependencies are separate. To prebuild them locally or in CI:
+The default package contains the tools; documentation inputs and Linux installer
+and example-machine build dependencies are separate. To prebuild them locally or in CI:
 
 ```sh
 nix build .#default \
   .#default.passthru.deps.nixos-image \
+  .#default.passthru.deps.documentation-inputs \
   .#default.passthru.deps.example-machine
 ```
 
-Shell entry builds these dependencies in parallel and roots them under
-`$IDR_GCROOT` (`$PRJ_DATA_DIR/<host-id>/gcroot`). `TMPDIR`, `TMP`, and `TEMP`
+Shell entry starts these dependencies, project documentation, and option search
+in parallel in the background. Results are rooted under `$IDR_GCROOT`
+(`$PRJ_DATA_DIR/<host-id>/gcroot`). `TMPDIR`, `TMP`, and `TEMP`
 point to `$PRJ_DATA_DIR/<host-id>/tmp`; both directories are created on entry.
 With unchanged IDR inputs, project edits reuse the same dependencies and their
 separate evaluation cache.
+
+Reloading an edited project cancels superseded builds.
+`idr-generate-docs` waits for the current build. Search uses the last successful
+index, waiting only on first use. Build logs are beside `gcroot`, under
+`builds/<name>/build.log`.

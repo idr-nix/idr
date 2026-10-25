@@ -18,5 +18,10 @@ if [ -f .envrc.local ]; then
   # shellcheck disable=SC1091
   source ".envrc.local"
 else
-  use flake .
+  use flake . || return $?
+  # nix-direnv restores temp variables after the shell hook.
+  if [[ -n "${IDR_TMPDIR:-}" ]]; then
+    export TMPDIR="$IDR_TMPDIR"
+    export TMP="$TMPDIR" TEMP="$TMPDIR"
+  fi
 fi

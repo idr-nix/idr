@@ -9,6 +9,12 @@ top: {
   cfg = config.idr;
 
   scripts = ../scripts;
+  hostDirectory = name: "$(${pkgs.nushell}/bin/nu -n --no-std-lib --no-history -c ${lib.escapeShellArg ''
+    use ${scripts}/idr-common.nu [host-data-dir]
+    let directory = host-data-dir | path join "${name}" | path expand
+    mkdir $directory
+    $directory
+  ''})";
 
   # Upstream already tests this version; its debug test build needs much memory.
   cleanupNu =
@@ -95,7 +101,7 @@ top: {
   };
 in {
   # Evaluate package paths alongside environment
-  # values (including option indexes), before constructing the shell.
+  # values, before constructing the shell.
   options.devshell.shell = lib.mkOption {
     internal = true;
     apply = shell:
@@ -155,16 +161,15 @@ in {
         }
         {
           name = "IDR_GCROOT";
-          eval = "$(${pkgs.nushell}/bin/nu -n --no-std-lib --no-history -c ${lib.escapeShellArg ''
-            use ${scripts}/idr-common.nu [host-data-dir]
-            let directory = host-data-dir | path expand
-            mkdir ($directory | path join "gcroot") ($directory | path join "tmp")
-            $directory | path join "gcroot"
-          ''})";
+          eval = hostDirectory "gcroot";
+        }
+        {
+          name = "IDR_TMPDIR";
+          eval = hostDirectory "tmp";
         }
         {
           name = "TMPDIR";
-          eval = "\"$(${pkgs.coreutils}/bin/dirname \"$IDR_GCROOT\")/tmp\"";
+          eval = "$IDR_TMPDIR";
         }
         {
           name = "TMP";

@@ -26,14 +26,21 @@
     {
       outputs = { self }: let
         graph = builtins.fromJSON (builtins.readFile ./inputs.json);
+        sourceKey = node: builtins.hashString "sha256" (builtins.toJSON [ node.source node.info.narHash ]);
+        collectSources = node: if node ? ref then {} else
+          builtins.foldl' (sources: child: sources // collectSources child) {
+            "''${sourceKey node}" = builtins.fetchTree {
+              type = "path";
+              path = node.source;
+              inherit (node.info) narHash;
+            };
+          } (builtins.attrValues node.inputs);
+        # Shared source accessors keep declaration paths identical with lazy trees.
+        sources = collectSources graph;
         load = node: if node ? ref then
           builtins.foldl' (input: name: input.inputs.''${name}) root node.ref
         else let
-          source = builtins.fetchTree {
-            type = "path";
-            path = node.source;
-            inherit (node.info) narHash;
-          };
+          source = sources.''${sourceKey node};
           sourceInfo = node.info // { outPath = source.outPath; };
           inputs = builtins.mapAttrs (_: load) node.inputs;
           outputs = (import (source.outPath + "/flake.nix")).outputs (inputs // { self = result; });
