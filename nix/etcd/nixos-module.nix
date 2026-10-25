@@ -47,6 +47,12 @@ in {
             message = "${option}: user names must be nonempty and may not contain ':'.";
           }
           {
+            assertion = lib.all (user:
+              lib.all (role: role == "root" || builtins.hasAttr role rbac.roles) user.roles)
+            (lib.attrValues rbac.users);
+            message = "${option}: users may only reference declared roles or the built-in root role.";
+          }
+          {
             assertion = lib.all (role:
               lib.all (permission:
                 !permission.prefix || builtins.isString permission.target)
