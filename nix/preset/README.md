@@ -14,9 +14,9 @@ preset. It also sets `idr.preset.base.defaultSopsFile` to the machine's
 `secrets.enc.json`.
 
 The defaults include systemd-networkd with DHCP, nftables, key-based SSH access,
-declarative users, Fail2ban, ZFS scrubbing, and Podman. Network and SSH access are
-also configured in the initrd so disks can be unlocked remotely. Root SSH access
-is controlled through the [team configuration](../../docs/team-input.md#ssh-access).
+declarative users, Fail2ban, ZFS scrubbing, and Podman. Network and SSH access on
+port `2222` are also configured in the initrd so disks can be unlocked remotely.
+Root SSH access is controlled through the [team configuration](../../docs/team-input.md#ssh-access).
 
 An on-screen unlock keyboard is enabled for systemd initrds without Plymouth.
 Set `boot.initrd.unl0kr.enable = false;` to disable it. Touchscreen drivers must

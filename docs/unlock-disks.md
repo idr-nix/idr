@@ -9,7 +9,8 @@ idr-unlock-disks some-machine
 ```
 
 The command takes a deploy-rs node name and uses its address and SSH options.
-The default SSH user is `root`.
+The default SSH user is `root`. The port comes from
+`boot.initrd.network.ssh.port`, which defaults to `2222` with the base preset.
 
 For unattended boots, configure an [automatic unlock server](../nix/disk-unlock/README.md).
 

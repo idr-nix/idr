@@ -81,6 +81,7 @@ in {
 
       boot.initrd.network.ssh = {
         enable = lib.mkDefault true;
+        port = lib.mkDefault 2222;
         hostKeys = lib.mkDefault [(keyPath "initrd_ssh_host_ed25519_key")];
       };
       boot.initrd.systemd.users.root.shell = lib.mkIf config.boot.initrd.network.ssh.enable "/bin/systemd-tty-ask-password-agent";
