@@ -27,7 +27,7 @@ top: {lib, ...}: {
       idr.test.sshGit.repositories = [
         {
           source = top.self;
-          url = "git+ssh://git@github.com/idr-nix/idr";
+          url = "git+https://github.com/idr-nix/idr";
         }
       ];
 
@@ -74,10 +74,11 @@ top: {lib, ...}: {
         machine.wait_for_unit("sshd.service")
         machine.wait_for_unit("idr-existing-project-fixture.service")
 
-        with subtest("initialize the existing flake following the README"):
+        with subtest("initialize the existing flake without SSH credentials"):
+            machine.succeed("test ! -e /home/operator/.ssh/id_ed25519")
             machine.succeed(
                 "su - operator -c 'cd project && "
-                "nix run \"git+ssh://git@github.com/idr-nix/idr\" -- idr-mk-project .'",
+                "GIT_SSH_COMMAND=false GIT_TERMINAL_PROMPT=0 nix run \"git+https://github.com/idr-nix/idr\" -- idr-mk-project .'",
                 timeout=900,
             )
 

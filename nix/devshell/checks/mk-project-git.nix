@@ -13,7 +13,7 @@ top: {lib, ...}: {
       idr.test.sshGit.repositories = [
         {
           source = top.self;
-          url = "git+ssh://git@github.com/idr-nix/idr";
+          url = "git+https://github.com/idr-nix/idr";
         }
       ];
 
@@ -33,9 +33,10 @@ top: {lib, ...}: {
         start_all()
         machine.wait_for_unit("sshd.service")
 
-        with subtest("follow the README's new-project command as a normal user"):
+        with subtest("bootstrap the public IDR URL without SSH credentials"):
+            machine.succeed("test ! -e /home/operator/.ssh/id_ed25519")
             machine.succeed(
-                "su - operator -c 'nix run \"git+ssh://git@github.com/idr-nix/idr\" -- idr-mk-project path/to/project'",
+                "su - operator -c 'GIT_SSH_COMMAND=false GIT_TERMINAL_PROMPT=0 nix run \"git+https://github.com/idr-nix/idr\" -- idr-mk-project path/to/project'",
                 timeout=600,
             )
             machine.succeed(

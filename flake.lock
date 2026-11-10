@@ -3,16 +3,16 @@
     "bdwgc": {
       "flake": false,
       "locked": {
-        "lastModified": 1790015987,
-        "narHash": "sha256-bPVosUgucJR0hGSap3tJW84AR6eGYegVROV+O8VYX5A=",
+        "lastModified": 1792766812,
+        "narHash": "sha256-ZXxPgcmKohIJv8sYVHJaUV36/OCfTGQh+N7VfrPHVAM=",
         "owner": "DeterminateSystems",
         "repo": "bdwgc",
-        "rev": "373957929b9ca3b2ae69a3e16b830c44c15b42ca",
+        "rev": "8505c09cafce7bd2cffc421fd94b79390f37e428",
         "type": "github"
       },
       "original": {
         "owner": "DeterminateSystems",
-        "ref": "user-defined-stacks",
+        "ref": "nix-patches-master",
         "repo": "bdwgc",
         "type": "github"
       }
@@ -43,18 +43,18 @@
         "utils": "utils"
       },
       "locked": {
-        "lastModified": 1788879443,
-        "narHash": "sha256-qb9sL86UCUEd3SYAda4ItN1NV0vhMSdbpA64WckvVI0=",
+        "lastModified": 1792446739,
+        "narHash": "sha256-eINUtQW48bf9G3EYprthHMll8VDKxaXQP52TZFuwMmE=",
         "ref": "refs/heads/master",
-        "rev": "414ac5f35d79aabe5a0bf52451d8cf61eadf6c88",
+        "rev": "1cec0527bd09074bbee6d4461900ce5d58267217",
         "shallow": true,
         "type": "git",
-        "url": "ssh://git@github.com/serokell/deploy-rs"
+        "url": "https://github.com/serokell/deploy-rs"
       },
       "original": {
         "shallow": true,
         "type": "git",
-        "url": "ssh://git@github.com/serokell/deploy-rs"
+        "url": "https://github.com/serokell/deploy-rs"
       }
     },
     "determinate-nix": {
@@ -67,18 +67,18 @@
         "nixpkgs-regression": "nixpkgs-regression"
       },
       "locked": {
-        "lastModified": 1790400991,
-        "narHash": "sha256-ngQCk0dy3pA3WNhSNya9mnEELalTVqpp49jGvUNtF3k=",
+        "lastModified": 1794236311,
+        "narHash": "sha256-BCS0GRpqwWnod+wuVO0D7uCYMIeQDzDmTgyvb3YT7b0=",
         "ref": "refs/heads/main",
-        "rev": "561dc6e86828a916626d4cead0605665bd0cdac2",
+        "rev": "91ecbb5959217fc9c48176ed0443a515011944c9",
         "shallow": true,
         "type": "git",
-        "url": "ssh://git@github.com/DeterminateSystems/nix-src"
+        "url": "https://github.com/DeterminateSystems/nix-src"
       },
       "original": {
         "shallow": true,
         "type": "git",
-        "url": "ssh://git@github.com/DeterminateSystems/nix-src"
+        "url": "https://github.com/DeterminateSystems/nix-src"
       }
     },
     "devshell": {
@@ -88,18 +88,18 @@
         ]
       },
       "locked": {
-        "lastModified": 1768818222,
-        "narHash": "sha256-460jc0+CZfyaO8+w8JNtlClB2n4ui1RbHfPTLkpwhU8=",
+        "lastModified": 1791918082,
+        "narHash": "sha256-oN9JrhRfHa7MUTdUq+11dHn7u0Z4WfEA4mhzBq0/zoQ=",
         "ref": "refs/heads/main",
-        "rev": "255a2b1725a20d060f566e4755dbf571bbbb5f76",
+        "rev": "9e29c63dde99a2d80c94b3d024c9768c01544558",
         "shallow": true,
         "type": "git",
-        "url": "ssh://git@github.com/numtide/devshell"
+        "url": "https://github.com/numtide/devshell"
       },
       "original": {
         "shallow": true,
         "type": "git",
-        "url": "ssh://git@github.com/numtide/devshell"
+        "url": "https://github.com/numtide/devshell"
       }
     },
     "disko": {
@@ -109,18 +109,18 @@
         ]
       },
       "locked": {
-        "lastModified": 1778958912,
-        "narHash": "sha256-6pvS9rIF9mZRj1ENwu9fDLHeG1JFDTCpRyy6vJhXkTA=",
+        "lastModified": 1792526520,
+        "narHash": "sha256-3hSJlv8mUVnZPMWK2+CM7a9O+nR6Z4mCh27NfLCmTPc=",
         "ref": "refs/heads/master",
-        "rev": "6e8dc7aa0e65fce67c76e18227a13a7d529f2cdf",
+        "rev": "cedd626e11b635470fa6f9fdb8ad79b0075dd7f9",
         "shallow": true,
         "type": "git",
-        "url": "ssh://git@github.com/nix-community/disko"
+        "url": "https://github.com/nix-community/disko"
       },
       "original": {
         "shallow": true,
         "type": "git",
-        "url": "ssh://git@github.com/nix-community/disko"
+        "url": "https://github.com/nix-community/disko"
       }
     },
     "disko-zfs": {
@@ -136,18 +136,18 @@
         ]
       },
       "locked": {
-        "lastModified": 1773422739,
-        "narHash": "sha256-nfl7tj3TN8MZI5JpidUjlqax+2ly2BHay3tpM/cc9ik=",
+        "lastModified": 1791885228,
+        "narHash": "sha256-kz2Mwb81aFkDN6pH6TPycZ6LStmW1HVAf84Se8nISB0=",
         "ref": "refs/heads/main",
-        "rev": "adaef72fba88b4f313fcb3f7cf02e24b2a09b648",
+        "rev": "88ee5244af05aefc6c2c641f9bd2184327bac008",
         "shallow": true,
         "type": "git",
-        "url": "ssh://git@github.com/numtide/disko-zfs"
+        "url": "https://github.com/numtide/disko-zfs"
       },
       "original": {
         "shallow": true,
         "type": "git",
-        "url": "ssh://git@github.com/numtide/disko-zfs"
+        "url": "https://github.com/numtide/disko-zfs"
       }
     },
     "flake-compat": {
@@ -223,18 +223,18 @@
         "nixpkgs-lib": "nixpkgs-lib"
       },
       "locked": {
-        "lastModified": 1778716662,
-        "narHash": "sha256-m1Yf0wZ8j1OHjTc2UwHwyQRSnNeSgLJOd7q5Y45hzi4=",
+        "lastModified": 1793576659,
+        "narHash": "sha256-V1h85lUaJBQoHFrB2vpXZOE0Ju1MYSnIpsehoVZYlDo=",
         "ref": "refs/heads/main",
-        "rev": "f7c1a2d347e4c52d5fb8d10cb4d94b5884e546fb",
+        "rev": "ea2630b7470978622c7689a1ff75d2b389175399",
         "shallow": true,
         "type": "git",
-        "url": "ssh://git@github.com/hercules-ci/flake-parts"
+        "url": "https://github.com/hercules-ci/flake-parts"
       },
       "original": {
         "shallow": true,
         "type": "git",
-        "url": "ssh://git@github.com/hercules-ci/flake-parts"
+        "url": "https://github.com/hercules-ci/flake-parts"
       }
     },
     "git-hooks-nix": {
@@ -261,45 +261,23 @@
     "git-hooks-nix_2": {
       "inputs": {
         "flake-compat": "flake-compat_3",
-        "gitignore": "gitignore",
         "nixpkgs": [
           "nixpkgs"
         ]
       },
       "locked": {
-        "lastModified": 1778507602,
-        "narHash": "sha256-kTwur1wV+01SdqskVMSo6JMEpg71ps3HpbFY2GsflKs=",
+        "lastModified": 1793686154,
+        "narHash": "sha256-Zb/0L3soxrkfcrywpfp0J++0WFLB3tzh0Xtx9up+VNc=",
         "ref": "refs/heads/master",
-        "rev": "61ab0e80d9c7ab14c256b5b453d8b3fb0189ba0a",
+        "rev": "204b6977e00caac19e2313015a598543ca7be150",
         "shallow": true,
         "type": "git",
-        "url": "ssh://git@github.com/cachix/git-hooks.nix"
+        "url": "https://github.com/cachix/git-hooks.nix"
       },
       "original": {
         "shallow": true,
         "type": "git",
-        "url": "ssh://git@github.com/cachix/git-hooks.nix"
-      }
-    },
-    "gitignore": {
-      "inputs": {
-        "nixpkgs": [
-          "git-hooks-nix",
-          "nixpkgs"
-        ]
-      },
-      "locked": {
-        "lastModified": 1709087332,
-        "narHash": "sha256-HG2cCnktfHsKV0s4XW83gU3F57gaTljL9KNSuG6bnQs=",
-        "owner": "hercules-ci",
-        "repo": "gitignore.nix",
-        "rev": "637db329424fd7e46cf4185293b9cc8c88c95394",
-        "type": "github"
-      },
-      "original": {
-        "owner": "hercules-ci",
-        "repo": "gitignore.nix",
-        "type": "github"
+        "url": "https://github.com/cachix/git-hooks.nix"
       }
     },
     "home-manager": {
@@ -309,19 +287,19 @@
         ]
       },
       "locked": {
-        "lastModified": 1780883961,
-        "narHash": "sha256-WU6SUrESuPiEXEUvX4D51AgWrXRJty+sLJBwBaDBGqE=",
+        "lastModified": 1794251182,
+        "narHash": "sha256-R2sZBXiOJo3HAnvTiVkbbHDJy//JMlAwUKEiPbfqPXk=",
         "ref": "release-26.05",
-        "rev": "4eb4fec41674d5b059aa2eedf0f98453890546fa",
+        "rev": "6eb2d33d1d0c95a37ef6443c88e6c1686012ee8b",
         "shallow": true,
         "type": "git",
-        "url": "ssh://git@github.com/nix-community/home-manager"
+        "url": "https://github.com/nix-community/home-manager"
       },
       "original": {
         "ref": "release-26.05",
         "shallow": true,
         "type": "git",
-        "url": "ssh://git@github.com/nix-community/home-manager"
+        "url": "https://github.com/nix-community/home-manager"
       }
     },
     "hypeman-src": {
@@ -351,18 +329,18 @@
         ]
       },
       "locked": {
-        "lastModified": 1769548169,
-        "narHash": "sha256-03+JxvzmfwRu+5JafM0DLbxgHttOQZkUtDWBmeUkN8Y=",
+        "lastModified": 1792739756,
+        "narHash": "sha256-s0TeXWG5Ci75Y/Hzon0Z7NrN/fG773Rc54/z6oPFszQ=",
         "ref": "refs/heads/master",
-        "rev": "7b1d382faf603b6d264f58627330f9faa5cba149",
+        "rev": "fa627f4c8b8e92f58f58a73d99ee4e1304e64eb2",
         "shallow": true,
         "type": "git",
-        "url": "ssh://git@github.com/nix-community/impermanence"
+        "url": "https://github.com/nix-community/impermanence"
       },
       "original": {
         "shallow": true,
         "type": "git",
-        "url": "ssh://git@github.com/nix-community/impermanence"
+        "url": "https://github.com/nix-community/impermanence"
       }
     },
     "microvm": {
@@ -397,28 +375,28 @@
         ]
       },
       "locked": {
-        "lastModified": 1789036642,
-        "narHash": "sha256-ng2Ou1UrVCP98OAJiq8Mv6aDF/kjQWyaKm4PaxWtAu4=",
+        "lastModified": 1791456080,
+        "narHash": "sha256-VDnm81L/1YLrPklNacGCNwpPhHi5Tya1XbfdnCB/Zd0=",
         "ref": "refs/heads/main",
-        "rev": "4fcaaefd02b5bc777f99afd620cb1a9aa1fb5b83",
+        "rev": "50939ddf1a0339f289a9dbd810bdfd4e4fba6df4",
         "shallow": true,
         "type": "git",
-        "url": "ssh://git@github.com/nix-community/nixos-images"
+        "url": "https://github.com/nix-community/nixos-images"
       },
       "original": {
         "shallow": true,
         "type": "git",
-        "url": "ssh://git@github.com/nix-community/nixos-images"
+        "url": "https://github.com/nix-community/nixos-images"
       }
     },
     "nixpkgs": {
       "locked": {
-        "lastModified": 1787962033,
-        "narHash": "sha256-u6z9VTZA4Kf3RkHQo9sQI7NI4Ei/uiU9vrMqOiwWP1Y=",
-        "rev": "c5c4a43b0e8056328ec4529f735cabdb8f1942bb",
-        "revCount": 1012930,
+        "lastModified": 1793633738,
+        "narHash": "sha256-tItrb9M8eYA6WhFgmT9tpGKueri3+wRuVA952o/2xSU=",
+        "rev": "7dcdd87373d72e7a2173e4db02e20d3d7f495cfd",
+        "revCount": 1017737,
         "type": "tarball",
-        "url": "https://api.flakehub.com/f/pinned/NixOS/nixpkgs/0.2605.1012930%2Brev-c5c4a43b0e8056328ec4529f735cabdb8f1942bb/01a053c0-7061-7382-b001-102e9148a5b5/source.tar.gz"
+        "url": "https://api.flakehub.com/f/pinned/NixOS/nixpkgs/0.2605.1017737%2Brev-7dcdd87373d72e7a2173e4db02e20d3d7f495cfd/01a19fe9-5ace-72d3-9f41-cd64567df3e3/source.tar.gz"
       },
       "original": {
         "type": "tarball",
@@ -443,11 +421,11 @@
     },
     "nixpkgs-lib": {
       "locked": {
-        "lastModified": 1777168982,
-        "narHash": "sha256-GOkGPcboWE9BmGCRMLX3worL4EMnsnG8MyKmXNeYuhQ=",
+        "lastModified": 1793504054,
+        "narHash": "sha256-ThkfL3D/FhCiZFc9+3BtxwuMmpuK+/bGtXCSo1+yVew=",
         "owner": "nix-community",
         "repo": "nixpkgs.lib",
-        "rev": "f5901329dade4a6ea039af1433fb087bd9c1fe14",
+        "rev": "7851ba61fd862b277cb6a9cef37394bc18bb94e4",
         "type": "github"
       },
       "original": {
@@ -474,52 +452,52 @@
     },
     "nixpkgs-unstable": {
       "locked": {
-        "lastModified": 1778869304,
-        "narHash": "sha256-30sZNZoA1cqF5JNO9fVX+wgiQYjB7HJqqJ4ztCDeBZE=",
+        "lastModified": 1794042290,
+        "narHash": "sha256-ziZn2PvCJE5JEEpqTdxXwJpPB+L3YqoCpTAMCzyaP3U=",
         "ref": "nixos-unstable",
-        "rev": "d233902339c02a9c334e7e593de68855ad26c4cb",
+        "rev": "f4a03c008967841f2a0b3cb7c436fc6fc31671f6",
         "shallow": true,
         "type": "git",
-        "url": "ssh://git@github.com/NixOS/nixpkgs"
+        "url": "https://github.com/NixOS/nixpkgs"
       },
       "original": {
         "ref": "nixos-unstable",
         "shallow": true,
         "type": "git",
-        "url": "ssh://git@github.com/NixOS/nixpkgs"
+        "url": "https://github.com/NixOS/nixpkgs"
       }
     },
     "nixpkgs_2": {
       "locked": {
-        "lastModified": 1780902259,
-        "narHash": "sha256-q8yYEC5f1mFlQO9RGna4LTc9QrcvWunX6FYp83munkQ=",
+        "lastModified": 1793865203,
+        "narHash": "sha256-/cpdPHaySDIyCgZI6EWngiM6jK3YLUNzv1b7lTzy6Bk=",
         "ref": "nixos-26.05",
-        "rev": "bd0ff2d3eac24699c3664d5966b9ef36f388e2ca",
+        "rev": "c56a87d8e41ce69bd2af57eb35dcc117a9dfca33",
         "shallow": true,
         "type": "git",
-        "url": "ssh://git@github.com/NixOS/nixpkgs"
+        "url": "https://github.com/NixOS/nixpkgs"
       },
       "original": {
         "ref": "nixos-26.05",
         "shallow": true,
         "type": "git",
-        "url": "ssh://git@github.com/NixOS/nixpkgs"
+        "url": "https://github.com/NixOS/nixpkgs"
       }
     },
     "process-compose-flake": {
       "locked": {
-        "lastModified": 1767863885,
-        "narHash": "sha256-XXekPAxzbv1DmHFo3Elmj/vDnvWc1V0jdDUvM0/Wf7k=",
+        "lastModified": 1791992503,
+        "narHash": "sha256-ak6baHPCy6SUTskWRfxdlgF5mtEfFx9kIMskKVPpaMY=",
         "ref": "refs/heads/main",
-        "rev": "99bea96cf269cfd235833ebdf645b567069fd398",
+        "rev": "8e27bc993c0156b5e033ad5889094d65fd27f623",
         "shallow": true,
         "type": "git",
-        "url": "ssh://git@github.com/Platonic-Systems/process-compose-flake"
+        "url": "https://github.com/Platonic-Systems/process-compose-flake"
       },
       "original": {
         "shallow": true,
         "type": "git",
-        "url": "ssh://git@github.com/Platonic-Systems/process-compose-flake"
+        "url": "https://github.com/Platonic-Systems/process-compose-flake"
       }
     },
     "root": {
@@ -548,18 +526,18 @@
     },
     "services-flake": {
       "locked": {
-        "lastModified": 1778980174,
-        "narHash": "sha256-BFnPAQsDtHhntjUUVhluwZB+QvA0fZXXtruIoxHCepI=",
+        "lastModified": 1794115173,
+        "narHash": "sha256-cpYHw90jyivuictInQ7pdgbNIMHNxTCfs8L0VLRkgnM=",
         "ref": "refs/heads/main",
-        "rev": "b1965cb0b36ec958c958c037f157d52efd809e5a",
+        "rev": "5bd0ae850b6ffc83fcc3814758c02fb63a941e2d",
         "shallow": true,
         "type": "git",
-        "url": "ssh://git@github.com/juspay/services-flake"
+        "url": "https://github.com/juspay/services-flake"
       },
       "original": {
         "shallow": true,
         "type": "git",
-        "url": "ssh://git@github.com/juspay/services-flake"
+        "url": "https://github.com/juspay/services-flake"
       }
     },
     "sops-nix": {
@@ -569,18 +547,18 @@
         ]
       },
       "locked": {
-        "lastModified": 1777944972,
-        "narHash": "sha256-VfGRo1qTBKOe3s2gOv8LSoA6Fk19PvBlwQ1ECN0Evn8=",
+        "lastModified": 1794261845,
+        "narHash": "sha256-Ivif/kuD68yEOKcZZG3zSwNMFUuIgzUgeJuzcHrQy+8=",
         "ref": "refs/heads/master",
-        "rev": "c591bf665727040c6cc5cb409079acb22dcce33c",
+        "rev": "fe7b4228405aeac2ce7192c2049a6e2bc8637082",
         "shallow": true,
         "type": "git",
-        "url": "ssh://git@github.com/Mic92/sops-nix"
+        "url": "https://github.com/Mic92/sops-nix"
       },
       "original": {
         "shallow": true,
         "type": "git",
-        "url": "ssh://git@github.com/Mic92/sops-nix"
+        "url": "https://github.com/Mic92/sops-nix"
       }
     },
     "spectrum": {
@@ -616,18 +594,18 @@
     },
     "systems_2": {
       "locked": {
-        "lastModified": 1681028828,
-        "narHash": "sha256-Vy1rq5AaRuLzOxct8nz4T6wlgyUR7zLU309k9mBC768=",
+        "lastModified": 1791244623,
+        "narHash": "sha256-uuanbkFk8a313Zfrxdcz8Us/yQtaxNnKJtX8v0ZPpd8=",
         "ref": "refs/heads/main",
-        "rev": "da67096a3b9bf56a91d16901293e51ba5b49a27e",
+        "rev": "d36eeed142f88b5a636f2e3856a53c61654cf29b",
         "shallow": true,
         "type": "git",
-        "url": "ssh://git@github.com/nix-systems/default"
+        "url": "https://github.com/nix-systems/default"
       },
       "original": {
         "shallow": true,
         "type": "git",
-        "url": "ssh://git@github.com/nix-systems/default"
+        "url": "https://github.com/nix-systems/default"
       }
     },
     "team": {

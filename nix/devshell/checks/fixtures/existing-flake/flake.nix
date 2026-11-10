@@ -3,7 +3,7 @@
 
   inputs = {
     idr = {
-      url = "git+ssh://git@github.com/idr-nix/idr?shallow=1";
+      url = "git+https://github.com/idr-nix/idr?shallow=1";
       inputs = {
         nixpkgs.follows = "nixpkgs";
         nixpkgs-unstable.follows = "nixpkgs-unstable";
@@ -15,10 +15,10 @@
       url = "file+file:///dev/null";
       flake = false;
     };
-    nixpkgs.url = "git+ssh://git@github.com/NixOS/nixpkgs?shallow=1&ref=nixos-26.05";
-    nixpkgs-unstable.url = "git+ssh://git@github.com/NixOS/nixpkgs?shallow=1&ref=nixos-unstable";
-    flake-parts.url = "git+ssh://git@github.com/hercules-ci/flake-parts?shallow=1";
-    systems.url = "git+ssh://git@github.com/nix-systems/default?shallow=1";
+    nixpkgs.url = "git+https://github.com/NixOS/nixpkgs?shallow=1&ref=nixos-26.05";
+    nixpkgs-unstable.url = "git+https://github.com/NixOS/nixpkgs?shallow=1&ref=nixos-unstable";
+    flake-parts.url = "git+https://github.com/hercules-ci/flake-parts?shallow=1";
+    systems.url = "git+https://github.com/nix-systems/default?shallow=1";
   };
 
   outputs = inputs:

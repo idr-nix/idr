@@ -4,18 +4,21 @@ _: {
   ...
 }: let
   cfg = config.idr.test.sshGit;
-  urlPattern = "(git\\+)?ssh://git@([a-zA-Z0-9._-]+)(/[a-zA-Z0-9._~/-]+)";
+  urlPattern = "(git\\+)?(ssh://git@|https://)([a-zA-Z0-9._-]+)(/[a-zA-Z0-9._~/-]+)";
   repositories = lib.imap0 (index: repository: let
     parts = builtins.match urlPattern repository.url;
   in
     repository
     // {
-      host = builtins.elemAt parts 1;
-      path = builtins.elemAt parts 2;
+      isSsh = builtins.elemAt parts 1 == "ssh://git@";
+      host = builtins.elemAt parts 2;
+      path = builtins.elemAt parts 3;
       directory = "/var/lib/ssh-git/repositories/${toString index}";
       worktree = "/tmp/ssh-git-${toString index}";
     })
   cfg.repositories;
+  sshRepositories = builtins.filter (repository: repository.isSsh) repositories;
+  httpsRepositories = builtins.filter (repository: !repository.isSsh) repositories;
 in {
   options.idr.test.sshGit = {
     repositories = lib.mkOption {
@@ -34,7 +37,9 @@ in {
             type = lib.types.strMatching urlPattern;
             example = "git+ssh://git@github.com/myorg/team";
             description = ''
-              SSH Git URL to serve locally, with optional git+ prefix and user git.
+              SSH (user git) or HTTPS Git URL to serve locally, with optional git+ prefix.
+              HTTPS URLs use Git insteadOf rewrites to unauthenticated local file URLs,
+              not a TLS server. SSH URLs retain key-based authentication.
               Repository paths must be unique across hosts. Explicit ports, query
               strings, fragments, and escaped path characters are not supported.
             '';
@@ -42,7 +47,7 @@ in {
         };
       });
       default = [];
-      description = "Git repositories made available over SSH inside each test node.";
+      description = "Git repositories made available locally for SSH and HTTPS URLs inside each test node.";
     };
     clientUser = lib.mkOption {
       type = lib.types.str;
@@ -70,7 +75,7 @@ in {
                 ;;
             ''}
           '')
-          repositories}
+          sshRepositories}
           *)
             echo "Unsupported Git command or repository" >&2
             exit 1
@@ -84,6 +89,16 @@ in {
           message = "idr.test.sshGit.repositories must have unique paths, including across different hosts.";
         }
       ];
+
+      # Nix strips git+ before invoking Git. Keep rewrites repository-specific so
+      # private SSH inputs on the same host still exercise authentication.
+      programs.git = {
+        enable = true;
+        config.url = builtins.listToAttrs (map (repository: {
+          name = "file://${repository.directory}";
+          value.insteadOf = "https://${repository.host}${repository.path}";
+        }) httpsRepositories);
+      };
 
       services.openssh = {
         enable = true;
@@ -109,7 +124,7 @@ in {
           IdentityFile ${client.home}/.ssh/id_ed25519
           IdentitiesOnly yes
           StrictHostKeyChecking accept-new
-      '') (lib.unique (map (repository: repository.host) repositories));
+      '') (lib.unique (map (repository: repository.host) sshRepositories));
 
       users.groups.git = {};
       users.users.git = {
@@ -126,7 +141,7 @@ in {
         "d ${client.home}/.ssh 0700 ${cfg.clientUser} ${client.group} -"
       ];
       systemd.services.ssh-git-fixture = {
-        description = "Prepare the local SSH Git repositories";
+        description = "Prepare the local SSH and HTTPS Git fixtures";
         requiredBy = ["sshd.service"];
         before = ["sshd.service"];
         after = ["systemd-tmpfiles-setup.service"];
@@ -147,7 +162,7 @@ in {
             ''}
           '')
           repositories
-          + ''
+          + lib.optionalString (sshRepositories != []) ''
             ssh-keygen -q -t ed25519 -N "" -f ${lib.escapeShellArg "${client.home}/.ssh/id_ed25519"}
             chown ${lib.escapeShellArg "${cfg.clientUser}:${client.group}"} ${lib.escapeShellArg "${client.home}/.ssh/id_ed25519"} ${lib.escapeShellArg "${client.home}/.ssh/id_ed25519.pub"}
             cat ${lib.escapeShellArg "${client.home}/.ssh/id_ed25519.pub"} > /var/lib/ssh-git/authorized_keys

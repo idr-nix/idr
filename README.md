@@ -8,7 +8,7 @@ The name reflects an opinionated but pragmatic approach to infrastructure, not a
 ### Prerequisites
 
 Mandatory (must already be installed on your system):
-- [Git](https://git-scm.com/), configured for SSH access to GitHub - used to fetch the repository and manage changes
+- [Git](https://git-scm.com/) - used to fetch the repository and manage changes
 - [Nix](https://nixos.org/download/) with [flakes](https://nixos.wiki/wiki/Flakes) enabled - required to evaluate and use this project  
   For Debian, RPM-based, and pacman-based systems, the community installers at [nix-community.github.io/nix-installers](https://nix-community.github.io/nix-installers/) are worth considering.
   On macOS, consider [Determinate Nix](https://determinate.systems/solutions/nix-for-macos/).
@@ -22,7 +22,7 @@ Without direnv, enter the project's development shell with `nix develop` before 
 
 If your project does not have a flake yet:
 ```bash
-nix run "git+ssh://git@github.com/idr-nix/idr" -- idr-mk-project path/to/project
+nix run "git+https://github.com/idr-nix/idr" -- idr-mk-project path/to/project
 ```
 
 Enter the generated project:
@@ -42,7 +42,7 @@ Integrate with flake parts: https://flake.parts/getting-started.html#existing-fl
 Add or merge these entries into the existing `inputs` set.
 ```nix
 idr = {
-  url = "git+ssh://git@github.com/idr-nix/idr?shallow=1";
+  url = "git+https://github.com/idr-nix/idr?shallow=1";
   inputs = {
     nixpkgs.follows = "nixpkgs";
     nixpkgs-unstable.follows = "nixpkgs-unstable";
@@ -54,10 +54,10 @@ team = {
   url = "file+file:///dev/null";
   flake = false;
 };
-nixpkgs.url = "git+ssh://git@github.com/NixOS/nixpkgs?shallow=1&ref=nixos-26.05";
-nixpkgs-unstable.url = "git+ssh://git@github.com/NixOS/nixpkgs?shallow=1&ref=nixos-unstable";
-flake-parts.url = "git+ssh://git@github.com/hercules-ci/flake-parts?shallow=1";
-systems.url = "git+ssh://git@github.com/nix-systems/default?shallow=1";
+nixpkgs.url = "git+https://github.com/NixOS/nixpkgs?shallow=1&ref=nixos-26.05";
+nixpkgs-unstable.url = "git+https://github.com/NixOS/nixpkgs?shallow=1&ref=nixos-unstable";
+flake-parts.url = "git+https://github.com/hercules-ci/flake-parts?shallow=1";
+systems.url = "git+https://github.com/nix-systems/default?shallow=1";
 ```
 
 Prefix the existing `mkFlake` callback argument pattern with `top @`. Keep every argument already present in that pattern:
@@ -88,7 +88,7 @@ use flake .
 
 `idr-mk-project` preserves existing `.envrc` and `.env` files. The development shell sources `.env` as Bash.
 
-and run `nix run "git+ssh://git@github.com/idr-nix/idr" -- idr-mk-project .`
+and run `nix run "git+https://github.com/idr-nix/idr" -- idr-mk-project .`
 
 ## Next steps
 

@@ -48,7 +48,7 @@ top: {lib, ...}: {
       idr.test.sshGit.repositories = [
         {
           source = top.self;
-          url = "git+ssh://git@github.com/idr-nix/idr";
+          url = "git+https://github.com/idr-nix/idr";
         }
         {
           source = teamSource;
@@ -98,6 +98,17 @@ top: {lib, ...}: {
         start_all()
         machine.wait_for_unit("sshd.service")
         machine.wait_for_unit("idr-project-fixture.service")
+
+        with subtest("resolve public IDR without SSH while keeping the team private"):
+            machine.succeed(
+                "su - operator -c 'GIT_SSH_COMMAND=false GIT_TERMINAL_PROMPT=0 "
+                "nix flake metadata --json git+https://github.com/idr-nix/idr > /dev/null'",
+                timeout=600,
+            )
+            machine.fail(
+                "su - operator -c 'GIT_SSH_COMMAND=false "
+                "git ls-remote ssh://git@github.com/myorg/team'"
+            )
 
         with subtest("update the team input following the documentation"):
             machine.succeed(

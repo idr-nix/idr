@@ -62,7 +62,7 @@ top: {
       if ! [[ -f flake.lock ]]; then
         cp ${top.self}/flake.lock flake.lock
       fi
-      export IDR_GIT_URL="ssh://git@github.com/idr-nix/idr?shallow=1"
+      export IDR_GIT_URL="https://github.com/idr-nix/idr?shallow=1"
       export IDR_GIT_REF="refs/heads/main"
       export IDR_GIT_REV="${top.self.rev or ""}"
       export IDR_GIT_DIRTY_REV="${top.self.dirtyRev or ""}"

@@ -44,7 +44,7 @@ Then update `flake.nix` to use that repository:
 inputs = {
   # ...
   team = {
-    url = "git+ssh://git@github.com/myorg/team";
+    url = "git+https://github.com/myorg/team";
     flake = false;
   };
 };
