@@ -24,7 +24,7 @@ in {
       boot.loader.efi.canTouchEfiVariables = lib.mkDefault false;
       boot.loader.grub = {
         enable = lib.mkDefault (options ? disko && (builtins.length (lib.attrNames config.disko.devices.disk)) > 0);
-        configurationLimit = lib.mkDefault 20;
+        configurationLimit = lib.mkDefault 10;
         efiSupport = lib.mkDefault true;
         useOSProber = lib.mkDefault false;
         efiInstallAsRemovable = lib.mkDefault true;

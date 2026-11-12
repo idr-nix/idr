@@ -139,7 +139,6 @@ in {
         requiredBy = ["sysroot.mount"];
         before = ["sysroot.mount"];
         unitConfig.DefaultDependencies = false;
-        path = [pkgs.btrfs-progs pkgs.coreutils pkgs.util-linuxMinimal];
         serviceConfig = {
           Type = "oneshot";
           RemainAfterExit = true;
@@ -160,23 +159,16 @@ in {
     })
 
     (lib.mkIf (cfg.impermanence.rootDataset != null) {
+      # Package-wide service paths copy every executable into the initrd.
       boot.initrd.systemd.extraBin = {
         "chattr" = "${pkgs.e2fsprogs}/bin/chattr";
+        "find" = "${pkgs.findutils}/bin/find";
         "jq" = "${pkgs.jq}/bin/jq";
       };
       boot.initrd.systemd.services.initrd-rollback-root = {
         after = ["zfs-import.target"];
         before = ["sysroot.mount"];
         description = "Rollback root fs";
-        path = with pkgs; [
-          config.boot.zfs.package
-          findutils
-          systemd
-          e2fsprogs
-          coreutils
-          jq
-          util-linuxMinimal
-        ];
         serviceConfig.Type = "oneshot";
         unitConfig.DefaultDependencies = "no";
         wantedBy = ["initrd.target"];

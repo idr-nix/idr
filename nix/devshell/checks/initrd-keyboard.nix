@@ -19,6 +19,7 @@ top: {lib, ...}: {
         extra
       ]).config;
     defaults = evaluate {};
+    enabled = evaluate {boot.initrd.unl0kr.enable = true;};
     disabled = map evaluate [
       {idr.preset.base.enable = false;}
       {boot.isContainer = true;}
@@ -27,11 +28,21 @@ top: {lib, ...}: {
       {boot.plymouth.enable = true;}
       {boot.initrd.unl0kr.enable = false;}
     ];
-    drm = evaluate {boot.initrd.unl0kr.settings.general.backend = "drm";};
-    touch = evaluate {services.iptsd.enable = true;};
+    drm = evaluate {
+      boot.initrd.unl0kr = {
+        enable = true;
+        settings.general.backend = "drm";
+      };
+    };
+    touch = evaluate {
+      boot.initrd.unl0kr.enable = true;
+      services.iptsd.enable = true;
+    };
   in {
     checks = {
-      initrd-keyboard-options = assert lib.assertMsg defaults.boot.initrd.unl0kr.enable "The base preset must offer an initrd keyboard by default";
+      initrd-keyboard-options = assert lib.assertMsg (!defaults.boot.initrd.unl0kr.enable) "The base preset must retain console unlocking by default";
+      assert lib.assertMsg (!(defaults.boot.initrd.systemd.services ? unl0kr-agent) && !(defaults.boot.initrd.systemd.paths ? unl0kr-agent)) "The default initrd must not contain graphical unlock agent units";
+      assert lib.assertMsg (enabled.boot.initrd.unl0kr.enable && enabled.boot.initrd.systemd.services ? unl0kr-agent) "The native unl0kr option must enable the graphical unlock agent";
       assert lib.assertMsg (builtins.all (config: !config.boot.initrd.unl0kr.enable) disabled) "The initrd keyboard must honor exclusions and native opt-out";
       assert lib.assertMsg (lib.hasInfix ''SUBSYSTEM=="drm"'' drm.boot.initrd.services.udev.rules) "A custom DRM backend must activate on DRM devices";
       assert lib.assertMsg (builtins.elem "uinput" touch.boot.initrd.kernelModules && !(touch.boot.initrd.systemd.services."iptsd@".unitConfig.DefaultDependencies)) "IPTSD must run before the real root is mounted";
@@ -75,8 +86,12 @@ top: {lib, ...}: {
 
         nodes = {
           graphical = {pkgs, ...}: {
+            boot.initrd.unl0kr.enable = true;
             virtualisation.qemu.options = lib.optional pkgs.stdenv.hostPlatform.isx86 "-vga virtio";
             services.iptsd.enable = true;
+          };
+          console = {pkgs, ...}: {
+            virtualisation.qemu.options = lib.optional pkgs.stdenv.hostPlatform.isx86 "-vga virtio";
           };
           headless = {pkgs, ...}: {
             options.virtualisation.qemu.options = lib.mkOption {
@@ -95,6 +110,7 @@ top: {lib, ...}: {
           initial_vt = ""
           for machine, system in [
               (graphical, "${nodes.graphical.specialisation.encrypted.configuration.system.build.toplevel}"),
+              (console, "${nodes.console.specialisation.encrypted.configuration.system.build.toplevel}"),
               (headless, "${nodes.headless.specialisation.encrypted.configuration.system.build.toplevel}"),
           ]:
               with subtest(f"{machine.name}: boot without an unlock request"):
@@ -111,6 +127,23 @@ top: {lib, ...}: {
                   )
                   machine.crash()
                   machine.start()
+
+          with subtest("default graphical machines unlock through the physical keyboard"):
+              console.wait_for_unit("systemd-ask-password-console.service", timeout=30)
+              console.wait_until_succeeds("test -f /run/systemd/ask-password/ask.*", timeout=30)
+              console.succeed(
+                  "test -e /dev/fb0",
+                  'test "$(systemctl show -p LoadState --value unl0kr-agent.service)" = not-found',
+                  'test "$(systemctl show -p LoadState --value unl0kr-agent.path)" = not-found',
+              )
+              console_vt = console.succeed("cat /sys/class/tty/tty0/active").strip()
+              console.wait_until_succeeds(
+                  f"pgrep -f 'systemd-tty-ask-password-agent --watch --console=/dev/{console_vt}($| )'", timeout=30,
+              )
+              console.send_chars("eeee\n")
+              console.switch_root()
+              console.wait_for_unit("multi-user.target")
+              console.succeed("findmnt -n -S /dev/mapper/cryptroot --mountpoint /")
 
           with subtest("unlock encrypted root using only the on-screen keyboard"):
               graphical.wait_for_unit("unl0kr-agent.service", timeout=60)

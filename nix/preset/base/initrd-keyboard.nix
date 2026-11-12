@@ -8,9 +8,7 @@ _: {
 in {
   config = lib.mkIf (config.idr.preset.base.enable && !config.boot.isContainer) (lib.mkMerge [
     {
-      boot.initrd.unl0kr.enable = lib.mkDefault (
-        config.boot.initrd.enable && config.boot.initrd.systemd.enable && !config.boot.plymouth.enable
-      );
+      boot.initrd.unl0kr.enable = lib.mkDefault false;
     }
     (lib.mkIf cfg.enable {
       boot.initrd.unl0kr.settings = {
@@ -71,7 +69,7 @@ in {
           "${pkgs.iptsd}/bin/iptsd"
           "${pkgs.iptsd}/bin/iptsd-check-device"
           "${pkgs.iptsd}/share/iptsd"
-          "${pkgs.systemd}/bin/systemd-escape"
+          "${config.boot.initrd.systemd.package}/bin/systemd-escape"
         ];
         contents."/etc/iptsd.conf".source = config.environment.etc."iptsd.conf".source;
         services."iptsd@" = {
