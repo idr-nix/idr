@@ -89,6 +89,7 @@ top: args @ {
       ];
       idr = {
         inherit (args.config.idr) projectName;
+        flakeSource = toString self;
         nixosRelease = inputs.nixpkgs.lib.trivial.release;
         additionalPaths = [self] ++ (top.self.lib.collectFlakeInputs inputs);
       };

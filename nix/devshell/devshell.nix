@@ -134,6 +134,14 @@ in {
       internal = true;
       default = pkgs.lib.trivial.release;
     };
+    flakeSource = lib.mkOption {
+      description = ''
+        Source of the flake that provides the development shell, used to recognize its checkout.
+      '';
+      type = lib.types.nullOr lib.types.path;
+      internal = true;
+      default = null;
+    };
     templatesDir = lib.mkOption {
       description = ''
         Path to the templates directory used for generating project, machine, role, and module configurations.
@@ -226,6 +234,23 @@ in {
       ]);
 
     devshell.startup_env = lib.mkForce ''
+      ${lib.optionalString (cfg.flakeSource != null) ''
+        # Upstream uses the caller's directory inside nix develop and direnv. Like Nix's
+        # own flake lookup, take the nearest enclosing flake.nix without leaving the
+        # Git repository. Only the entered flake's own flake.nix counts, so a shell
+        # started by flake reference inside another project never writes into it.
+        # Otherwise keep the caller's directory.
+        if [[ -n ''${IN_NIX_SHELL:-} || ''${DIRENV_IN_ENVRC:-} = 1 ]]; then
+          __idr_root=$PWD
+          until [[ -e "$__idr_root/flake.nix" || -e "$__idr_root/.git" || -z "$__idr_root" ]]; do
+            __idr_root=''${__idr_root%/*}
+          done
+          if ${pkgs.diffutils}/bin/cmp -s "$__idr_root/flake.nix" ${lib.escapeShellArg "${cfg.flakeSource}/flake.nix"}; then
+            PRJ_ROOT=''${__idr_root:-/}
+          fi
+          unset __idr_root
+        fi
+      ''}
       if [[ -f "$PRJ_ROOT/.env" ]]; then
         set -a
         source "$PRJ_ROOT/.env"
