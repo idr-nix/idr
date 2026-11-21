@@ -8,6 +8,9 @@ top: {
   proxies = lib.filterAttrs (_: proxy: proxy.enable) cfg.proxy;
   address = name: top.idr-lib.mkLocalIPv6 "idr-etcd-proxy-${name}";
   interface = "idr-etcd-proxy";
+  # Only privileged processes may bind it, so no local process can take it over
+  # while the proxy is down.
+  port = "1023";
   deviceUnit = "sys-subsystem-net-devices-${utils.escapeSystemdPath interface}.device";
 in {
   config = lib.mkIf (cfg.enable && proxies != {}) {
@@ -39,6 +42,8 @@ in {
           Restart = "on-failure";
           RestartSec = "5s";
           DynamicUser = true;
+          AmbientCapabilities = ["CAP_NET_BIND_SERVICE"];
+          CapabilityBoundingSet = ["CAP_NET_BIND_SERVICE"];
           ExecStart = lib.escapeShellArgs ([
               "${proxy.package}/bin/etcd"
               "grpc-proxy"
@@ -46,9 +51,9 @@ in {
               "--endpoints"
               (lib.concatMapStringsSep "," (endpoint: "https://${top.idr-lib.normalizeHost endpoint.domain}:${toString endpoint.port}") proxy.endpoints)
               "--listen-addr"
-              "[${address name}]:65535"
+              "[${address name}]:${port}"
               "--advertise-client-url"
-              "http://${name}.etcd.internal:65535"
+              "http://${name}.etcd.internal:${port}"
             ]
             ++ proxy.extraArgs);
         };

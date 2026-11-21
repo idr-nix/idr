@@ -521,7 +521,8 @@
         "services-flake": "services-flake",
         "sops-nix": "sops-nix",
         "systems": "systems_2",
-        "team": "team"
+        "team": "team",
+        "treefmt-nix": "treefmt-nix"
       }
     },
     "services-flake": {
@@ -618,6 +619,27 @@
       "original": {
         "type": "file",
         "url": "file:///dev/null"
+      }
+    },
+    "treefmt-nix": {
+      "inputs": {
+        "nixpkgs": [
+          "nixpkgs"
+        ]
+      },
+      "locked": {
+        "lastModified": 1795017206,
+        "narHash": "sha256-WSBJcYjPRxGetDNxVzKnRPs1TQasQQlAC25W/S4W6YE=",
+        "ref": "refs/heads/main",
+        "rev": "0ba5d67225c3f5c88eb134e1a665a379bfd3bea9",
+        "shallow": true,
+        "type": "git",
+        "url": "https://github.com/numtide/treefmt-nix"
+      },
+      "original": {
+        "shallow": true,
+        "type": "git",
+        "url": "https://github.com/numtide/treefmt-nix"
       }
     },
     "utils": {

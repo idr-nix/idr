@@ -144,6 +144,13 @@
       };
     };
 
+    treefmt-nix = {
+      url = "git+https://github.com/numtide/treefmt-nix?shallow=1";
+      inputs = {
+        nixpkgs.follows = "nixpkgs";
+      };
+    };
+
     process-compose-flake.url = "git+https://github.com/Platonic-Systems/process-compose-flake?shallow=1";
 
     services-flake.url = "git+https://github.com/juspay/services-flake?shallow=1";

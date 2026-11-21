@@ -440,4 +440,64 @@ in
     : Input text
     */
     shortHash = size: text: builtins.substring 0 size (builtins.hashString "sha512" text);
+
+    /**
+    # Type
+
+
+        types.sopsSource :: OptionType
+
+
+    A key in a SOPS file. Unlike a runtime secret reference, another machine can
+    read it too when it is a recipient of the file.
+    */
+    types.sopsSource = lib.types.submodule {
+      options = {
+        sopsFile = lib.mkOption {
+          description = "SOPS file containing the secret.";
+          type = lib.types.path;
+        };
+        key = lib.mkOption {
+          description = "Key of the secret in the file.";
+          type = lib.types.str;
+        };
+        format = lib.mkOption {
+          description = "Format of the SOPS file.";
+          type = lib.types.enum ["yaml" "json" "binary" "dotenv" "ini"];
+          default = "json";
+        };
+      };
+    };
+
+    /**
+    Derive etcd users and roles for the mesh agents of some machines, for
+    `idr.etcd.clusters.<name>.rbac`. Each machine with the mesh enabled gets
+    its own user and role named after `idr.mesh.etcd.username`: read and write
+    on the services it declares, and read on their peers. A machine's password
+    is read from its `idr.mesh.etcd.passwordSource`, so the RBAC machine must be
+    listed in that machine's `idr.mesh.etcd.rbacMachines`. For a machine that
+    passes a runtime secret as `idr.mesh.etcd.password`, set the user's
+    `password` on the RBAC machine.
+
+    # Example
+
+    ```nix
+    idr.etcd.clusters.main.rbac = lib.mkMerge [
+      { ... }
+      (idr-lib.meshRbac self.nixosConfigurations)
+    ];
+    ```
+
+    # Type
+
+    ```
+    meshRbac :: AttrSet -> { roles :: AttrSet, users :: AttrSet }
+    ```
+
+    # Arguments
+
+    nixosConfigurations
+    : The machines that may use the cluster
+    */
+    meshRbac = import ../mesh/rbac.nix {inherit lib;};
   })

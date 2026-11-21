@@ -28,3 +28,6 @@
 
 # local environment
 /.env
+
+# cabal build state used by haskell-language-server
+dist-newstyle/

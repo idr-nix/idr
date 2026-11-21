@@ -1,0 +1,28 @@
+--- a/server/etcdmain/grpc_proxy.go
++++ b/server/etcdmain/grpc_proxy.go
+@@ -39,6 +39,7 @@
+ 	"go.uber.org/zap/zapgrpc"
+ 	"golang.org/x/net/http2"
+ 	"google.golang.org/grpc"
++	"google.golang.org/grpc/backoff"
+ 	"google.golang.org/grpc/grpclog"
+ 	"google.golang.org/grpc/keepalive"
+ 
+@@ -347,6 +348,17 @@
+ 		grpc.WithUnaryInterceptor(grpcproxy.AuthUnaryClientInterceptor))
+ 	cfg.DialOptions = append(cfg.DialOptions,
+ 		grpc.WithStreamInterceptor(grpcproxy.AuthStreamClientInterceptor))
++	// Reconnect to the cluster within seconds after an outage, not after gRPC's
++	// default backoff of up to two minutes.
++	cfg.DialOptions = append(cfg.DialOptions, grpc.WithConnectParams(grpc.ConnectParams{
++		Backoff: backoff.Config{
++			BaseDelay:  time.Second,
++			Multiplier: 1.6,
++			Jitter:     0.2,
++			MaxDelay:   5 * time.Second,
++		},
++		MinConnectTimeout: 5 * time.Second,
++	}))
+ 	cfg.Logger = lg.Named("client")
+ 	client, err := clientv3.New(*cfg)
+ 	if err != nil {

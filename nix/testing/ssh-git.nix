@@ -95,9 +95,10 @@ in {
       programs.git = {
         enable = true;
         config.url = builtins.listToAttrs (map (repository: {
-          name = "file://${repository.directory}";
-          value.insteadOf = "https://${repository.host}${repository.path}";
-        }) httpsRepositories);
+            name = "file://${repository.directory}";
+            value.insteadOf = "https://${repository.host}${repository.path}";
+          })
+          httpsRepositories);
       };
 
       services.openssh = {

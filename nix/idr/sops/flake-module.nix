@@ -199,6 +199,7 @@ in {
                 );
                 path_regex = "^${prefix}\\/.*\\.enc\\.(json|yaml|bin)$";
                 diskKeyPathRegex = "^${prefix}\\/disk-key\\.enc\\.json$";
+                dir = machineDir;
                 roles =
                   lib.optionals
                   (cfg.idr ? roles)
@@ -240,11 +241,35 @@ in {
                   (recipients ++ (lib.flatten (builtins.map (machine: machine.recipients) relatedMachines)));
                 path_regex = "^${prefix}\\/.*\\.enc\\.(json|yaml|bin)$";
                 name = roleName;
+                dir = roleDir;
               }
           )
           (subDirectories config.idr.roleDirs));
+      # A mesh machine's etcd password file can also be decrypted by the
+      # machines that configure its etcd user. The file keeps the recipients of
+      # its machine or role directory.
+      meshPasswords = lib.concatLists (lib.mapAttrsToList (name: machine: let
+        mesh = machine.config.idr.mesh or {enable = false;};
+        source = mesh.etcd.access.passwordSource;
+        file = lib.removePrefix "${self}/" (toString source.sopsFile);
+        owner = lib.findFirst (entry: lib.hasPrefix "${entry.dir}/" file) null (machines ++ roles);
+      in
+        lib.optional (mesh.enable && source != null && mesh.etcd.rbacMachines != []) {
+          inherit file;
+          recipients =
+            if owner == null
+            then throw "The mesh etcd password of ${name} must be in a machine or role directory of this project."
+            else owner.recipients ++ map machineRecipient mesh.etcd.rbacMachines;
+        }) (self.nixosConfigurations or {}));
     in
-      (map (machine: {
+      lib.mapAttrsToList (file: entries: {
+        priority = 1;
+        rule = {
+          path_regex = "^${lib.escape ["/" "-"] (lib.escapeRegex file)}$";
+          age = lib.unique (lib.concatMap (entry: entry.recipients) entries);
+        };
+      }) (lib.groupBy (entry: entry.file) meshPasswords)
+      ++ (map (machine: {
           priority = 1;
           rule = {
             path_regex = machine.diskKeyPathRegex;

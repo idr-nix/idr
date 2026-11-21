@@ -27,6 +27,15 @@ in {
     assertions =
       [
         {
+          # The proxy and member peer listeners use port 1023 so that no other
+          # local process can take it over.
+          assertion = let
+            start = config.boot.kernel.sysctl."net.ipv4.ip_unprivileged_port_start" or null;
+          in
+            start == null || lib.toInt (toString start) >= 1024;
+          message = "idr.etcd: keep net.ipv4.ip_unprivileged_port_start at 1024 or more, so that only privileged processes can bind the local proxy and member peer port 1023.";
+        }
+        {
           assertion =
             lib.all (name: builtins.match "[A-Za-z0-9_.-]+" name != null)
             (lib.attrNames cfg.clusters
@@ -45,6 +54,10 @@ in {
           {
             assertion = lib.all (name: name != "" && !(lib.hasInfix ":" name)) (lib.attrNames rbac.users);
             message = "${option}: user names must be nonempty and may not contain ':'.";
+          }
+          {
+            assertion = lib.all (user: (user.password == null) != (user.passwordSource == null)) (lib.attrValues rbac.users);
+            message = "${option}: each user needs exactly one of password and passwordSource.";
           }
           {
             assertion = lib.all (user:

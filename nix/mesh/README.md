@@ -1,0 +1,89 @@
+## Service mesh
+
+Configure each machine's advertised addresses and etcd credentials:
+
+```nix
+idr.mesh = {
+  enable = true;
+  publicAddresses = ["2001:db8::10" "203.0.113.10"];
+  etcd = {
+    endpoint = "http://main.etcd.internal:1023";
+    username = "mesh-${config.networking.hostName}";
+    passwordSource = {
+      sopsFile = ./mesh-etcd.enc.json;
+      key = "password";
+    };
+    rbacMachines = [inputs.etcd.nixosConfigurations.etcd-1];
+  };
+};
+```
+
+Configure the [local proxy](../etcd/README.md#local-proxy) through the etcd
+module. Peer PSKs use [runtime secret references](../secrets/README.md).
+
+Keep each machine's password in a SOPS file of its own; the machines in
+`rbacMachines` can decrypt it. On those machines, derive the etcd
+[users and roles](../etcd/README.md#users-and-roles):
+
+```nix
+idr.etcd.clusters.main.rbac = lib.mkMerge [
+  {...}
+  (inputs.idr.lib.meshRbac self.nixosConfigurations)
+];
+```
+
+Leave `publicAddresses` empty (the default) to discover publicly routable host
+addresses.
+
+`portRange` defaults to `30000`-`32767`. The first port is reserved for UDP health
+checks; WireGuard instances use the remaining ports.
+
+`ipv6Prefix` defaults to `fdb4:cb46:0ef1`. Use the same prefix on all machines
+in the mesh.
+
+Add mesh settings to an existing modular service:
+
+```nix
+system.services."222222222222" = {...}: {
+  imports = [inputs.idr.modules.service.mesh];
+
+  idr.mesh.id = "222222222222";
+  idr.mesh.peers."333333333333".psk =
+    config.idr.secrets."222222222222-333333333333-psk";
+};
+```
+
+Configure the other service with ID `333333333333`, peer `222222222222`, and the
+same PSK. Replicas share the service ID and peer declarations. To declare peering
+between replicas, add the service's own ID to `peers`.
+
+Use `333333333333.mesh` to reach the peer's instances.
+
+### Monitoring
+
+Run `idr-mesh status` as root to print each workload's mesh state as JSON.
+
+To export the same state to Prometheus, point the mesh at node-exporter's
+textfile directory:
+
+```nix
+idr.mesh.metrics.textfileDirectory = "/var/lib/node-exporter-textfile";
+services.prometheus.exporters.node = {
+  enable = true;
+  enabledCollectors = ["textfile"];
+  extraFlags = ["--collector.textfile.directory=/var/lib/node-exporter-textfile"];
+};
+```
+
+Alert when, for several minutes:
+
+- `idr_mesh_workload_up == 1` but `idr_mesh_workload_registered == 0`: the
+  agent cannot register the workload in etcd.
+- `idr_mesh_applied_revision != idr_mesh_discovered_revision`: netd does not
+  apply discovered peers.
+- `idr_mesh_psk_mismatches > 0`: a peer's PSK has not converged.
+- `idr_mesh_wireguard_recent_handshakes < idr_mesh_wireguard_peers`: some peers
+  are unreachable.
+- `idr_mesh_public_addresses == 0`: the host advertises no address.
+- `time() - node_textfile_mtime_seconds{file=~".*idr-mesh.prom"} > 120`: the
+  mesh metrics are stale.

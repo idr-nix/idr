@@ -46,6 +46,7 @@ top: {lib, ...}: {
         };
       testScript = ''
         import json
+        import urllib.parse
         from concurrent.futures import ThreadPoolExecutor
 
         start_all()
@@ -169,6 +170,13 @@ top: {lib, ...}: {
             cluster_id = listing["header"]["cluster_id"]
             removed = next(member for member in listing["members"] if member["name"] == "gamma")
             gamma.succeed("systemctl stop idr-etcd-main@gamma.service")
+            # A process holding the stopped member's peer port would receive raft traffic.
+            peer = urllib.parse.urlsplit(removed["peerURLs"][0]).netloc
+            status, output = gamma.execute(
+                "timeout 10 setpriv --reuid=65534 --regid=65534 --clear-groups "
+                f"systemd-socket-activate --listen='{peer}' true 2>&1"
+            )
+            assert status != 0 and "Permission denied" in output, output
             alpha.wait_until_succeeds(admin + "endpoint health")
             alpha.succeed(admin + f"member remove {removed['ID']:x}")
             gamma.succeed("rm -rf /p1/etcd-gamma/member")

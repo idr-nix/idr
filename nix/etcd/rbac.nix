@@ -7,13 +7,28 @@ top: {
   cfg = config.idr.etcd;
   reconcile = pkgs.writers.writeNu "idr-etcd-rbac" (builtins.readFile ./setup-users.nu);
   userCredential = name: "user-${top.idr-lib.shortHash 16 name}";
+  managed = lib.filterAttrs (_: cluster: cluster.rbac != null) cfg.clusters;
+  # A password read from a SOPS source becomes a local secret.
+  sourceName = clusterName: name: "idr-etcd-rbac-${clusterName}-${userCredential name}";
+  password = clusterName: name: user:
+    if user.passwordSource == null
+    then user.password
+    else config.idr.secrets.${sourceName clusterName name};
 in {
   config = lib.mkIf cfg.enable {
+    idr.secrets-source = lib.concatMapAttrs (clusterName: cluster:
+      lib.concatMapAttrs (name: user:
+        lib.optionalAttrs (user.passwordSource != null) {
+          ${sourceName clusterName name} = {inherit (user.passwordSource) sopsFile key format;};
+        })
+      cluster.rbac.users)
+    managed;
+
     systemd.services = lib.mapAttrs' (clusterName: cluster: let
       rbac = cluster.rbac;
       endpoints = lib.concatStringsSep "," (map (endpoint: "https://${top.idr-lib.normalizeHost endpoint.domain}:${toString endpoint.port}") rbac.endpoints);
       name = "idr-etcd-rbac-${clusterName}";
-      passwords = [rbac.rootPassword] ++ map (user: user.password) (lib.attrValues rbac.users);
+      passwords = [rbac.rootPassword] ++ lib.mapAttrsToList (password clusterName) rbac.users;
       restartTargets = lib.unique (map (password: password.restartTarget) passwords);
       settings = pkgs.writers.writeJSON "${name}.json" {
         inherit (rbac) roles;
@@ -54,12 +69,12 @@ in {
           DynamicUser = true;
           LoadCredential =
             ["root-password:${rbac.rootPassword.path}"]
-            ++ lib.mapAttrsToList (name: user: "${userCredential name}:${user.password.path}") rbac.users;
+            ++ lib.mapAttrsToList (name: user: "${userCredential name}:${(password clusterName name user).path}") rbac.users;
           PrivateTmp = true;
           ProtectHome = true;
           UMask = "0077";
         };
       })
-    (lib.filterAttrs (_: cluster: cluster.rbac != null) cfg.clusters);
+    managed;
   };
 }

@@ -91,8 +91,16 @@ top: {
           type = types.attrsOf (types.submodule {
             options = {
               password = mkOption {
-                type = secret;
+                type = types.nullOr secret;
+                default = null;
                 description = "etcd user password.";
+              };
+              # Telling a source from a reference by its value would make the
+              # secret sources depend on the secrets they define.
+              passwordSource = mkOption {
+                type = types.nullOr top.idr-lib.types.sopsSource;
+                default = null;
+                description = "SOPS key holding the password, read on this host instead of password. This host must be a recipient of the file, such as another machine's password file.";
               };
               roles = mkOption {
                 type = types.listOf types.str;
@@ -250,7 +258,7 @@ in {
     };
     proxy = mkOption {
       default = {};
-      description = "Local gRPC proxies, exposed at <name>.etcd.internal:65535.";
+      description = "Local gRPC proxies, exposed at <name>.etcd.internal:1023.";
       type = types.attrsOf (types.submodule {
         options = {
           inherit endpoints caCert;
@@ -263,6 +271,7 @@ in {
                   ++ [
                     ./grpc-proxy-disable-kv-cache.patch
                     ./grpc-proxy-forward-lease-keepalive.patch
+                    ./grpc-proxy-reconnect-backoff.patch
                     ./grpc-proxy-watch-auth.patch
                   ];
               });

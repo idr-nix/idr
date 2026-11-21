@@ -11,6 +11,9 @@ top: {
     (lib.filterAttrs (_: instance: instance.enable) cluster.instances))
   cfg.clusters));
   interface = "idr-etcd-wg";
+  # Only privileged processes may bind it, so no local process can take over a
+  # member's peer traffic while the member is down.
+  peerPort = 1023;
   deviceUnit = "sys-subsystem-net-devices-${utils.escapeSystemdPath interface}.device";
   networkSecrets =
     {idr-etcd-private-key = cfg.privateNetwork.privKey;}
@@ -37,7 +40,7 @@ top: {
         destination = instance.address;
         inherit interface;
         protocol = "tcp";
-        port = 65535;
+        port = peerPort;
       }) (lib.attrValues instance.peers))
     (lib.attrValues instances);
 in {
@@ -137,7 +140,7 @@ in {
         unitName = "idr-etcd-${name}";
         credentials = "/run/credentials/${unitName}.service";
         targets = lib.unique [instance.cert.restartTarget instance.certKey.restartTarget];
-        peerURL = address: "http://${top.idr-lib.normalizeHost address}:65535";
+        peerURL = address: "http://${top.idr-lib.normalizeHost address}:${toString peerPort}";
       in
         lib.nameValuePair unitName {
           description = "etcd member ${name}";
@@ -174,6 +177,8 @@ in {
             TimeoutStartSec = "300s";
             LimitNOFILE = lib.mkDefault 40000;
             DynamicUser = true;
+            AmbientCapabilities = ["CAP_NET_BIND_SERVICE"];
+            CapabilityBoundingSet = ["CAP_NET_BIND_SERVICE"];
             StateDirectory = unitName;
             StateDirectoryMode = "0700";
             LoadCredential = ["cert:${instance.cert.path}" "cert-key:${instance.certKey.path}"];

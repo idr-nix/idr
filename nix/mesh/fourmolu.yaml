@@ -1,0 +1,18 @@
+indentation: 2
+function-arrows: trailing
+comma-style: trailing
+import-export-style: trailing
+indent-wheres: true
+record-brace-space: true
+newlines-between-decls: 1
+haddock-style: single-line
+let-style: inline
+in-style: right-align
+single-constraint-parens: always
+unicode: never
+respectful: false
+# The proto-lens operators, so request builders keep one setter per line.
+fixities:
+  - infixl 1 &
+  - infixr 4 .~
+  - infixl 8 ^.

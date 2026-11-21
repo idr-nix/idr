@@ -35,7 +35,7 @@ top: {lib, ...}: {
             machine.wait_for_unit(f"idr-etcd-main@{name}.service")
         alpha.wait_for_unit("idr-etcd-rbac-main.service")
         proxy.wait_for_unit("idr-etcd-proxy-application.service")
-        local = "env -u ETCDCTL_CACERT ETCDCTL_ENDPOINTS=http://application.etcd.internal:65535 etcdctl "
+        local = "env -u ETCDCTL_CACERT ETCDCTL_ENDPOINTS=http://application.etcd.internal:1023 etcdctl "
         application = local + "--user=application:public-test-application "
         retired = local + "--user=retired:public-test-application "
         admin = "ETCDCTL_ENDPOINTS=https://etcd-alpha.example.test:2379 etcdctl --user=root:public-test-root "
@@ -202,6 +202,17 @@ top: {lib, ...}: {
             alpha.shutdown()
             proxy.wait_until_succeeds(application + "put /application/proxy after-member-stop")
             assert proxy.succeed(application + "get /application/proxy --print-value-only").strip() == "after-member-stop"
+
+        with subtest("keep the local endpoint from unprivileged processes while the proxy is stopped"):
+            proxy.succeed("systemctl stop idr-etcd-proxy-application.service")
+            # A process holding the port would receive the clients' credentials.
+            status, output = proxy.execute(
+                "timeout 10 setpriv --reuid=65534 --regid=65534 --clear-groups "
+                f"systemd-socket-activate --listen='[{address}]:1023' true 2>&1"
+            )
+            assert status != 0 and "Permission denied" in output, output
+            proxy.succeed("systemctl start idr-etcd-proxy-application.service")
+            proxy.wait_until_succeeds(application + "get /application/proxy")
       '';
     };
   };

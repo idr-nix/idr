@@ -28,6 +28,8 @@
 - [idr-mk-module](./docs/mk-module.md)
 - [LDAP](./nix/ldap/README.md)
 - [etcd](./nix/etcd/README.md)
+- [Service mesh](./nix/mesh/README.md)
+  - [Mesh operations](./docs/mesh-operations.md)
 
 # Module options
 - [nixos](docs/generated/nixos-options.md)

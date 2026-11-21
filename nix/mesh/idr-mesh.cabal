@@ -1,0 +1,114 @@
+cabal-version:      3.0
+name:               idr-mesh
+version:            0.1.0.0
+build-type:         Custom
+license:            MIT
+synopsis:           WireGuard service mesh for NixOS
+extra-source-files: src/IDR/Mesh/*.agda
+
+custom-setup
+  setup-depends:
+    , base
+    , Cabal     >=3.12 && <3.13
+    , filepath
+
+executable idr-mesh
+  default-language: GHC2021
+  ghc-options:      -Wall -Werror=incomplete-patterns -threaded -rtsopts
+  hs-source-dirs:   app src
+  main-is:          Main.hs
+  autogen-modules:
+    MAlonzo.Code.IDR.Mesh.Agreement
+    MAlonzo.Code.IDR.Mesh.Foreign
+    MAlonzo.Code.IDR.Mesh.Retention
+    MAlonzo.Code.Agda.Builtin.Bool
+    MAlonzo.Code.Agda.Builtin.Equality
+    MAlonzo.Code.Agda.Builtin.List
+    MAlonzo.Code.Agda.Builtin.Maybe
+    MAlonzo.Code.Agda.Primitive
+    MAlonzo.RTE
+
+  other-modules:
+    IDR.Mesh.Addresses
+    IDR.Mesh.Agent
+    IDR.Mesh.Apply
+    IDR.Mesh.Common
+    IDR.Mesh.Converge
+    IDR.Mesh.Desired
+    IDR.Mesh.Dns
+    IDR.Mesh.Dns.Transport
+    IDR.Mesh.Duration
+    IDR.Mesh.Effects
+    IDR.Mesh.Etcd
+    IDR.Mesh.Etcd.Config
+    IDR.Mesh.Etcd.Connection
+    IDR.Mesh.Etcd.Effect
+    IDR.Mesh.Etcd.Types
+    IDR.Mesh.FileMode
+    IDR.Mesh.Health
+    IDR.Mesh.Identity
+    IDR.Mesh.Instance
+    IDR.Mesh.Instance.Journal
+    IDR.Mesh.Instance.Registry
+    IDR.Mesh.Inventory
+    IDR.Mesh.IP
+    IDR.Mesh.Namespace
+    IDR.Mesh.Netd
+    IDR.Mesh.Netd.Server
+    IDR.Mesh.Netns
+    IDR.Mesh.PeerData
+    IDR.Mesh.Peers
+    IDR.Mesh.Port
+    IDR.Mesh.Probe
+    IDR.Mesh.Process
+    IDR.Mesh.PSK
+    IDR.Mesh.PSK.Keys
+    IDR.Mesh.PSK.Secret
+    IDR.Mesh.PublicKey
+    IDR.Mesh.SocketActivation
+    IDR.Mesh.Status
+    IDR.Mesh.WireGuard
+    MAlonzo.Code.Agda.Builtin.Bool
+    MAlonzo.Code.Agda.Builtin.Equality
+    MAlonzo.Code.Agda.Builtin.List
+    MAlonzo.Code.Agda.Builtin.Maybe
+    MAlonzo.Code.Agda.Primitive
+    MAlonzo.Code.IDR.Mesh.Agreement
+    MAlonzo.Code.IDR.Mesh.Foreign
+    MAlonzo.Code.IDR.Mesh.Retention
+    MAlonzo.RTE
+
+  extra-libraries:  acl
+  build-depends:
+    , aeson
+    , async
+    , base                     >=4.18  && <5
+    , base64-bytestring        >=1.2.1
+    , bytestring
+    , containers
+    , crypton
+    , directory
+    , effectful
+    , effectful-core
+    , filelock
+    , filepath
+    , grapesy
+    , hinotify
+    , http2
+    , iproute
+    , memory
+    , network
+    , network-uri
+    , optparse-applicative
+    , process
+    , proto-lens
+    , proto-lens-etcd
+    , random
+    , stm
+    , systemd
+    , text
+    , time
+    , time-manager
+    , tls
+    , transformers
+    , unix

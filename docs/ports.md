@@ -10,7 +10,7 @@ Use these conventions for other ports:
 | Application module and role defaults | `1025–9999` |
 | Custom port ranges, such as RTP | `10000–32767` |
 | Single custom ports | `61000–64999` |
-| Listeners bound to a specific address | `65000–65535` |
+| Listeners bound to a specific address | `1000–1023`, `65000–65535` |
 
 Prefer custom ports when running multiple instances of a service. Keep application
 defaults in `1025–9999` so a single instance can use its default without taking a
@@ -25,5 +25,8 @@ For internal services, assign a separate ULA IPv6 address to each instance and
 bind to that address on port `65535`. Generate a stable address with
 `top.idr-lib.mkLocalIPv6` and add it through
 [`idr.preset.loopback.addresses`](../nix/preset/README.md#additional-local-addresses).
-A reverse proxy can then forward traffic to the listener. Avoid binding ports
-in `65000–65535` to `0.0.0.0` or `::`.
+A reverse proxy can then forward traffic to the listener. Use port `1023`
+instead when clients send credentials or trust its answers: only privileged
+processes can bind it, so no local process can take it over while the service
+is down. Grant such a service `CAP_NET_BIND_SERVICE`. Avoid binding ports in
+`1000–1023` and `65000–65535` to `0.0.0.0` or `::`.
