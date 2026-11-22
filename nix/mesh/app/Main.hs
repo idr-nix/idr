@@ -14,6 +14,7 @@ import IDR.Mesh.Namespace qualified as NS
 import IDR.Mesh.Netd qualified as Netd
 import IDR.Mesh.Netd.Server qualified as Server
 import IDR.Mesh.Port (parsePort)
+import IDR.Mesh.Publish qualified as Publish
 import IDR.Mesh.Status qualified as Status
 import Options.Applicative
 
@@ -34,7 +35,8 @@ commands =
       subcommand "status" "Print each workload's mesh state as JSON; needs root" (pure Status.printStatus),
       subcommand "metrics" "Write mesh metrics for node-exporter's textfile collector; needs root" $
         Status.writeMetrics <$> arg "FILE",
-      subcommand "dns-transport" "Manage the isolated mesh DNS namespace and links" dnsTransport
+      subcommand "dns-transport" "Manage the isolated mesh DNS namespace and links" dnsTransport,
+      subcommand "publish" "Manage the links that carry a workload's published ports" publish
     ]
   where
     agentHelp = "Collect host addresses, and register and retire this host's mesh instances"
@@ -87,6 +89,15 @@ dnsTransport =
         DnsTransport.createLink <$> arg "SERVICE" <*> arg "INVENTORY" <*> arg "STATE",
       subcommand "remove-link" "Remove a service's DNS link and firewall" $
         DnsTransport.removeLink <$> arg "SERVICE" <*> arg "INVENTORY" <*> arg "STATE"
+    ]
+
+publish :: Parser (IO ())
+publish =
+  subcommands
+    [ subcommand "create-link" "Connect a workload to the host for its published ports" $
+        Publish.createLink <$> arg "SERVICE" <*> arg "INVENTORY" <*> arg "STATE",
+      subcommand "remove-link" "Remove a workload's publish link and firewall" $
+        Publish.removeLink <$> arg "SERVICE" <*> arg "INVENTORY" <*> arg "STATE"
     ]
 
 server :: Parser Server

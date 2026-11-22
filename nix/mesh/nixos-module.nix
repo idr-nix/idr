@@ -31,7 +31,7 @@ top: {
   # inventory keys, including when a subservice has the empty name.
   collect = name: service:
     lib.optionalAttrs ((service.idr or {}) ? mesh) {
-      ${name} = {inherit (service.idr.mesh) id peers;};
+      ${name} = {inherit (service.idr.mesh) id peers publish;};
     }
     // lib.concatMapAttrs (child: collect (lib.concatStringsSep "-" (lib.filter (part: part != "") [name child]))) service.services;
   # Each PSK becomes a local secret: a source, or an alias of a reference.
@@ -55,6 +55,7 @@ in {
     (importApply ./netd.nix {inherit meshExe;})
     (importApply ./netns.nix {inherit setupExe meshServices;})
     (importApply ./dns.nix {inherit setupExe meshServices;})
+    (importApply ./publish.nix {inherit setupExe meshServices;})
     (importApply ./agent.nix {inherit meshExe meshEtcd;})
     (importApply ./psk.nix {inherit meshExe meshServices;})
     (importApply ./metrics.nix {inherit meshExe;})
@@ -73,6 +74,20 @@ in {
       type = ipv6Prefix;
       default = "fd63:51c5:a6f0";
       description = "Local IPv6 /48 prefix for isolated mesh DNS links, as three full lowercase hexadecimal groups.";
+    };
+
+    published = {
+      ipv6Prefix = mkOption {
+        type = ipv6Prefix;
+        default = "fd2e:9c41:57b3";
+        description = "Local IPv6 /48 prefix for the links that carry published ports, as three full lowercase hexadecimal groups.";
+      };
+      ipv4Prefix = mkOption {
+        type = types.strMatching "(25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9])\\.(25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9])";
+        default = "10.201";
+        example = "172.30";
+        description = "Local IPv4 /16 prefix for the links that carry published ports, as its first two octets.";
+      };
     };
 
     publicAddresses = mkOption {
@@ -157,8 +172,8 @@ in {
     };
     assertions = [
       {
-        assertion = cfg.dns.ipv6Prefix != cfg.ipv6Prefix;
-        message = "idr.mesh.dns.ipv6Prefix must differ from the mesh IPv6 prefix.";
+        assertion = lib.allUnique [cfg.ipv6Prefix cfg.dns.ipv6Prefix cfg.published.ipv6Prefix];
+        message = "idr.mesh.ipv6Prefix, idr.mesh.dns.ipv6Prefix and idr.mesh.published.ipv6Prefix must differ.";
       }
       {
         assertion = cfg.portRange.from < cfg.portRange.to;

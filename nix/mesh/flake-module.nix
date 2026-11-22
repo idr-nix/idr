@@ -4,6 +4,7 @@ top: {lib, ...}: {
     ./checks/isolation.nix
     ./checks/lifecycle.nix
     ./checks/psk.nix
+    ./checks/publish.nix
     ./checks/transport.nix
   ];
 

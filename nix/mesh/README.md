@@ -63,6 +63,27 @@ between replicas, add the service's own ID to `peers`.
 
 Use `333333333333.mesh` to reach the peer's instances.
 
+### Published ports
+
+Forward ports of the host's addresses to a workload:
+
+```nix
+idr.mesh.publish = [
+  {proto = "tcp"; port = 443;}
+  {proto = "udp"; port = 443;}
+];
+```
+
+Connections from other machines keep the client's address. The workload still
+cannot open connections other than to its peers. Changing the ports does not
+restart the workload. Publishing needs the nftables firewall with
+`networking.firewall.filterForward`, both on in the base preset, and Linux 6.17
+or later. Each port and protocol belongs to one workload per machine.
+
+If the link addresses overlap a local network, change
+`idr.mesh.published.ipv4Prefix` (default `10.201`, a /16) or
+`idr.mesh.published.ipv6Prefix`.
+
 ### Monitoring
 
 Run `idr-mesh status` as root to print each workload's mesh state as JSON.

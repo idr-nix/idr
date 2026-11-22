@@ -277,7 +277,9 @@ in {
         extraInputRules = mkIf cfg.firewall.enable ''
           iifname "${cfg.bridgeName}" accept
         '';
-        extraForwardRules = mkIf cfg.firewall.enable ''
+        # Without that policy, guests stay routed unfiltered, also when the
+        # standard firewall filters forwarding.
+        extraForwardRules = ''
           iifname "${cfg.bridgeName}" accept
           oifname "${cfg.bridgeName}" accept
         '';

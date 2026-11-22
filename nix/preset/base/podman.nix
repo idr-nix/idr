@@ -55,6 +55,10 @@ in {
         iifname "${podmanInterface}" udp dport ${toString config.virtualisation.containers.containersConf.settings.network.dns_bind_port} accept
         iifname "${podmanInterface}" tcp dport ${toString config.virtualisation.containers.containersConf.settings.network.dns_bind_port} accept
       '';
+      # Containers' outgoing connections, when the firewall filters forwarding.
+      networking.firewall.extraForwardRules = lib.mkIf config.virtualisation.podman.enable ''
+        iifname "${podmanInterface}" accept
+      '';
 
       virtualisation.podman.enable = lib.mkDefault true;
 

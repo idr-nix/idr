@@ -27,6 +27,29 @@ in {
       default = {};
       description = "Permitted peer services, keyed by their twelve-digit lowercase hexadecimal service IDs. Configure the reciprocal relationship with the same PSK on each peer.";
     };
+
+    publish = mkOption {
+      type = types.listOf (types.submodule {
+        options = {
+          proto = mkOption {
+            type = types.enum ["tcp" "udp"];
+            description = "Transport protocol of the published port.";
+          };
+          port = mkOption {
+            type = types.ints.between 1 65535;
+            description = "Port on the host's addresses, forwarded to the same port of the workload.";
+          };
+        };
+      });
+      default = [];
+      example = [
+        {
+          proto = "tcp";
+          port = 443;
+        }
+      ];
+      description = "Ports of the host's addresses to forward to this workload. Connections from other machines keep their client address.";
+    };
   };
 
   config.assertions = [
@@ -36,10 +59,12 @@ in {
     }
   ];
 
+  # The publish link's unit exists whether or not ports are published, so
+  # publishing never changes this unit.
   config.systemd.service = {name, ...}: {
     wants = ["idr-mesh-agent.service" "idr-mesh-apply@${name}.service" "idr-mesh-dns.service"];
-    requires = ["idr-mesh-netns@${name}.service" "idr-mesh-dns-link@${name}.service" "systemd-tmpfiles-setup.service"];
-    after = ["idr-mesh-netns@${name}.service" "idr-mesh-dns-link@${name}.service" "idr-mesh-dns.service" "systemd-tmpfiles-setup.service"];
+    requires = ["idr-mesh-netns@${name}.service" "idr-mesh-dns-link@${name}.service" "idr-mesh-publish@${name}.service" "systemd-tmpfiles-setup.service"];
+    after = ["idr-mesh-netns@${name}.service" "idr-mesh-dns-link@${name}.service" "idr-mesh-publish@${name}.service" "idr-mesh-dns.service" "systemd-tmpfiles-setup.service"];
     serviceConfig = {
       NetworkNamespacePath = "/run/idr-mesh-netns/${name}/namespace";
       InaccessiblePaths = ["/run/nscd"];

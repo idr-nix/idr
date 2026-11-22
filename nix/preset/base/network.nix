@@ -29,6 +29,10 @@ in {
       # Allow PMTU / DHCP
       networking.firewall.allowPing = true;
 
+      # Forward only replies, port forwards and what modules allow through
+      # networking.firewall.extraForwardRules, even if forwarding stays enabled.
+      networking.firewall.filterForward = lib.mkDefault config.networking.nftables.enable;
+
       # Keep dmesg/journalctl -k output readable by NOT logging
       # each refused connection on the open internet.
       networking.firewall.logRefusedConnections = lib.mkDefault false;
