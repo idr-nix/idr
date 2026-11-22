@@ -54,6 +54,46 @@ top: {lib, ...}: {
           };
         };
 
+        system.services.report = let
+          apiToken = config.idr.secrets.api-token;
+          document = {
+            sopsFile = ./fixtures/runtime-secrets/initial.enc.json;
+            format = "json";
+            key = "api_token";
+          };
+          oneshot = {
+            Type = "oneshot";
+            RemainAfterExit = true;
+            Restart = "no";
+          };
+        in
+          {config, ...}: {
+            idr.secrets-source = {
+              token = apiToken;
+              inherit document;
+            };
+            process.argv = [
+              (pkgs.writeShellScript "report" ''
+                cat "$CREDENTIALS_DIRECTORY/token" "$CREDENTIALS_DIRECTORY/document" > /run/report/secrets
+              '')
+            ];
+            systemd.service.serviceConfig =
+              oneshot
+              // {
+                DynamicUser = true;
+                RuntimeDirectory = "report";
+                LoadCredential = [
+                  "token:${config.idr.secrets.token.path}"
+                  "document:${config.idr.secrets.document.path}"
+                ];
+              };
+            services.child = {
+              idr.secrets-source.token = document;
+              process.argv = ["${pkgs.coreutils}/bin/true"];
+              systemd.service.serviceConfig = oneshot;
+            };
+          };
+
         systemd.services.my-app = let
           secret = config.idr.secrets.app-config;
         in {
@@ -103,6 +143,16 @@ top: {lib, ...}: {
                 "test ! -e /run/idr-secrets/api-token-alias",
             )
 
+        with subtest("provide a modular service's references and sources under its unit name"):
+            machine.wait_for_unit("report.service")
+            machine.succeed(
+                "cat /run/secrets/api-token /run/secrets/api-token | cmp - /run/report/secrets",
+                "cmp /run/secrets/api-token /run/secrets/svc-report--document",
+                "cmp /run/secrets/api-token /run/secrets/svc-report-child--token",
+                "test ! -e /run/secrets/svc-report--token",
+                "test ! -e /run/idr-secrets/svc-report--token",
+            )
+
         with subtest("restrict each file to root and its declared secret group"):
             assert machine.succeed("su -s /bin/sh untrusted -c 'id -un'").strip() == "untrusted"
             secret_groups = set()
@@ -114,6 +164,8 @@ top: {lib, ...}: {
                 "/run/idr-secrets/output-file",
                 "/run/secrets/nested-DOCUMENT",
                 "/run/idr-secrets/nested",
+                "/run/secrets/svc-report--document",
+                "/run/secrets/svc-report-child--token",
             ]:
                 owner, group, mode = machine.succeed(f"stat -Lc '%U %g %a' {path}").split()
                 assert owner == "root" and mode == "440"

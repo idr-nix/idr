@@ -133,6 +133,30 @@ config = {
 This works for both forms. A reference creates no new secret: the name just
 points to the existing one. Then [connect the service](#connect-a-service).
 
+### Modular services
+
+A [modular service](https://nixos.org/manual/nixos/unstable/#modular-services)
+declares its secrets in its own `idr.secrets-source` and reads them from its own
+`idr.secrets`, with the same references and sources as above:
+
+```nix
+system.services.my-app = {config, ...}: {
+  idr.secrets-source.api-token = {
+    sopsFile = ./my-app.enc.json;
+    key = "api_token";
+  };
+  systemd.service.serviceConfig.LoadCredential =
+    "api-token:${config.idr.secrets.api-token.path}";
+};
+```
+
+The machine provides each one as `svc-<service>--<name>`, here
+`svc-my-app--api-token`. A nested service's name is joined with its parents' by
+`-`, so `services.worker` of `my-app` provides `svc-my-app-worker--<name>`. All
+units of a service share its secrets. A module the service imports can declare
+an option of type `top.idr-lib.types.secretOrSource` and set
+`idr.secrets-source.<name>` from it.
+
 ### Connect a service
 
 For example, extend an existing `my-app` service to read the generated `app-env`

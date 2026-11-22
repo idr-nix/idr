@@ -55,6 +55,8 @@ top: moduleArgs @ {
 in {
   key = toString ./nixos-module.nix;
 
+  imports = [(lib.modules.importApply ./services.nix top)];
+
   options.idr = {
     secrets-source = lib.mkOption {
       description = ''
