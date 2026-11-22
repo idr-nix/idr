@@ -17,23 +17,6 @@
         "type": "github"
       }
     },
-    "cloud-hypervisor-src": {
-      "flake": false,
-      "locked": {
-        "lastModified": 1791549776,
-        "narHash": "sha256-oBmp25WOkhMWwxRRIwdWSNWWiLhJYyoeQ6+sKQPDmfI=",
-        "ref": "refs/heads/main",
-        "rev": "36225ee3230fa263f0b03a6ba12a42b0f3ec8f91",
-        "shallow": true,
-        "type": "git",
-        "url": "https://github.com/cloud-hypervisor/cloud-hypervisor"
-      },
-      "original": {
-        "shallow": true,
-        "type": "git",
-        "url": "https://github.com/cloud-hypervisor/cloud-hypervisor"
-      }
-    },
     "deploy-rs": {
       "inputs": {
         "flake-compat": "flake-compat",
@@ -255,23 +238,6 @@
         "url": "https://github.com/nix-community/home-manager"
       }
     },
-    "hypeman-src": {
-      "flake": false,
-      "locked": {
-        "lastModified": 1791403671,
-        "narHash": "sha256-TRvcBDTELQ9p36WB8GK278dKVPDgYkj/tgVb9OYdWtY=",
-        "ref": "refs/heads/main",
-        "rev": "6875fedf151b10f9da1406b7b418992bba018dfc",
-        "shallow": true,
-        "type": "git",
-        "url": "https://github.com/kernel/hypeman"
-      },
-      "original": {
-        "shallow": true,
-        "type": "git",
-        "url": "https://github.com/kernel/hypeman"
-      }
-    },
     "impermanence": {
       "inputs": {
         "home-manager": [
@@ -409,7 +375,6 @@
     },
     "root": {
       "inputs": {
-        "cloud-hypervisor-src": "cloud-hypervisor-src",
         "deploy-rs": "deploy-rs",
         "determinate-nix": "determinate-nix",
         "devshell": "devshell",
@@ -418,7 +383,6 @@
         "flake-parts": "flake-parts",
         "git-hooks-nix": "git-hooks-nix",
         "home-manager": "home-manager",
-        "hypeman-src": "hypeman-src",
         "impermanence": "impermanence",
         "microvm": "microvm",
         "nixos-images": "nixos-images",

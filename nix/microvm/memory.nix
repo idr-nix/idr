@@ -1,11 +1,10 @@
 {
   lib,
   pkgs,
-  src,
   vms,
   settings,
 }: let
-  package = pkgs.callPackage ./hypeman-package.nix {inherit src;};
+  package = pkgs.callPackage ./hypeman-package.nix {};
   mib = 1024 * 1024;
   second = 1000000000;
   controllerConfig = pkgs.writeText "microvm-memory.json" (builtins.toJSON {

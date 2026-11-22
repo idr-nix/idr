@@ -114,7 +114,6 @@ top: {
 
   memoryManagement = import ./memory.nix {
     inherit lib pkgs;
-    src = inputs.hypeman-src;
     settings = config.idr.microvm.memory;
     vms =
       lib.mapAttrs (name: _: {
@@ -298,7 +297,7 @@ in {
     vms = lib.mkOption {
       description = "Named Cloud Hypervisor VMs with persistent guest-owned boot and storage.";
       type = lib.types.attrsOf (lib.types.submodule (lib.modules.importApply ./options.nix {
-        inherit lib pkgs inputs;
+        inherit lib pkgs;
         hostConfig = config;
       }));
       default = {};

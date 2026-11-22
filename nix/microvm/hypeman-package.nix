@@ -1,12 +1,17 @@
 {
   lib,
   buildGoModule,
-  src,
+  fetchFromGitHub,
 }:
 buildGoModule {
   pname = "hypeman-memory";
-  version = "unstable-${src.shortRev or "source"}";
-  inherit src;
+  version = "0.3.0-unstable-2026-10-07";
+  src = fetchFromGitHub {
+    owner = "kernel";
+    repo = "hypeman";
+    rev = "6875fedf151b10f9da1406b7b418992bba018dfc";
+    hash = "sha256-TRvcBDTELQ9p36WB8GK278dKVPDgYkj/tgVb9OYdWtY=";
+  };
 
   patches = [./hypeman/upstream-fixes.patch];
   vendorHash = "sha256-O/O6sms1bm91zNP+ZpY2qg9s+WAO4d1deMuCNynDn3o=";

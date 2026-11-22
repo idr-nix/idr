@@ -1,7 +1,6 @@
 {
   lib,
   pkgs,
-  inputs,
   hostConfig,
 }: {
   name,
@@ -33,8 +32,8 @@ in {
     };
     package = mkOption {
       type = types.package;
-      default = pkgs.callPackage ./cloud-hypervisor.nix {src = inputs.cloud-hypervisor-src;};
-      defaultText = lib.literalExpression "the locked Cloud Hypervisor source with native balloon statistics";
+      default = pkgs.callPackage ./cloud-hypervisor.nix {};
+      defaultText = lib.literalExpression "a Cloud Hypervisor build with native balloon statistics";
       description = "Cloud Hypervisor package. The default includes native balloon-stats for inspection.";
     };
     firmware = mkOption {
