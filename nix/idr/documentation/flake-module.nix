@@ -190,13 +190,17 @@ in {
               class = type.full;
             }).options;
         in
-          if source == null
-          then evaluated
-          else
-            import ./source-options.nix {
-              inherit lib source;
-              options = evaluated;
-            };
+          import ./recursion-guard.nix {
+            inherit lib;
+            options =
+              if source == null
+              then evaluated
+              else
+                import ./source-options.nix {
+                  inherit lib source;
+                  options = evaluated;
+                };
+          };
       };
 
     cfg = config.idr.documentation;
