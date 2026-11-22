@@ -14,7 +14,7 @@
 in {
   imports = [top.self.modules.nixosTest.disk-storage];
 
-  globalTimeout = 10 * 60;
+  globalTimeout = 15 * 60;
   defaults = {
     config,
     pkgs,

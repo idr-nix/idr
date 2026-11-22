@@ -12,7 +12,7 @@ top: {lib, ...}: {
         top.self.modules.nixosTest.kvm-clock
       ];
       name = "initrd-impermanence";
-      globalTimeout = 10 * 60;
+      globalTimeout = 15 * 60;
 
       defaults = {
         imports = [

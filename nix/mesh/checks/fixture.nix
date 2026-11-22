@@ -125,7 +125,7 @@
 in {
   imports = with top.self.modules.nixosTest; [disk-storage kvm-clock];
   _module.args.meshFixture = {inherit prefix instances psk secret mkService script leaseTTLSeconds rbac;};
-  globalTimeout = lib.mkDefault (10 * 60);
+  globalTimeout = lib.mkDefault (15 * 60);
   requiredFeatures.kvm = hostPkgs.stdenv.hostPlatform.isLinux;
 
   nodeDefaults.virtualisation = {

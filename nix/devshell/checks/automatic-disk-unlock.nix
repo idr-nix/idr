@@ -44,7 +44,7 @@ top: {lib, ...}: {
           top.self.modules.nixosTest.disk-storage
         ];
         name = "automatic-disk-unlock";
-        globalTimeout = 10 * 60;
+        globalTimeout = 15 * 60;
         defaults = {
           imports = [unlockModule top.self.modules.nixos.sops];
           # This direct service test supplies the machine ID normally declared

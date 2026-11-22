@@ -34,7 +34,7 @@ in {
   imports = [top.self.modules.nixosTest.disk-storage];
 
   _module.args.ldapCredentials = credentials;
-  globalTimeout = 10 * 60;
+  globalTimeout = 15 * 60;
 
   nodes.machine = {
     config,

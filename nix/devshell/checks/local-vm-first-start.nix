@@ -9,7 +9,10 @@ top: {lib, ...}: {
   in {
     checks.local-vm-first-start = pkgs.testers.runNixOSTest ({config, ...}: let
       inherit (config.node.pkgs.stdenv.hostPlatform) system;
-      inherit (pkgs.stdenv.hostPlatform) isDarwin;
+      inherit (pkgs.stdenv.hostPlatform) isDarwin isLinux;
+      # Linux runs the machine as a container in the build sandbox, which rejects
+      # setuid bits and file capabilities, so no wrapper can be created there.
+      bridgeWrapper = config.allMachines.machine.security.wrappers.qemu-bridge-helper;
       readinessTimeout =
         if isDarwin
         then 3600
@@ -54,8 +57,19 @@ top: {lib, ...}: {
         start_all()
         machine.wait_for_unit("idr-project-fixture.service", timeout=600)
         machine.wait_for_unit("systemd-networkd.service")
-        machine.succeed("test -x /run/wrappers/bin/qemu-bridge-helper && test ! -u /run/wrappers/bin/qemu-bridge-helper")
-        assert "cap_net_admin" in machine.succeed("${pkgs.libcap.out}/bin/getcap /run/wrappers/bin/qemu-bridge-helper")
+        ${
+          if isLinux
+          then ''
+            bridge_wrapper = json.loads(r"""${builtins.toJSON {inherit (bridgeWrapper) enable capabilities setuid setgid;}}""")
+            assert bridge_wrapper == {
+                "enable": True, "capabilities": "cap_net_admin+ep", "setuid": False, "setgid": False,
+            }, bridge_wrapper
+          ''
+          else ''
+            machine.succeed("test -x /run/wrappers/bin/qemu-bridge-helper && test ! -u /run/wrappers/bin/qemu-bridge-helper")
+            assert "cap_net_admin" in machine.succeed("${pkgs.libcap.out}/bin/getcap /run/wrappers/bin/qemu-bridge-helper")
+          ''
+        }
         machine.wait_until_succeeds(
             "ip -6 address show dev idr0 to ${networkPrefix}::1/128 | grep -q inet6"
         )

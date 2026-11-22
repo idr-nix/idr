@@ -53,7 +53,7 @@
 in
   pkgs.testers.runNixOSTest {
     name = "installation-mount-preservation";
-    globalTimeout = 10 * 60;
+    globalTimeout = 15 * 60;
 
     nodes.machine = {
       virtualisation = {

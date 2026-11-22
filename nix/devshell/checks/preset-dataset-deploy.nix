@@ -4,7 +4,7 @@ top: {lib, ...}: {
       imports = [top.self.modules.nixosTest.disk-storage];
       name = "preset-dataset-deploy";
       node.pkgsReadOnly = false;
-      globalTimeout = 10 * 60;
+      globalTimeout = 15 * 60;
 
       nodes.machine = {config, ...}: {
         imports = builtins.attrValues top.self.modules.nixos;

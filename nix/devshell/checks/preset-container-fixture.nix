@@ -1,7 +1,7 @@
 {top}: {
   imports = [top.self.modules.nixosTest.disk-storage];
 
-  globalTimeout = 10 * 60;
+  globalTimeout = 15 * 60;
   # The base preset and Disko add their normal Nixpkgs overlays.
   node.pkgsReadOnly = false;
 

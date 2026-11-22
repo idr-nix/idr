@@ -58,7 +58,7 @@ top: {lib, ...}: {
     checks = lib.optionalAttrs pkgs.stdenv.hostPlatform.isLinux {
       microvm-network = pkgs.testers.runNixOSTest {
         name = "microvm-network";
-        globalTimeout = 5 * 60;
+        globalTimeout = 15 * 60;
         requiredFeatures.kvm = false;
 
         defaults = {

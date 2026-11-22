@@ -56,7 +56,19 @@
 
     nixpkgs-unstable.url = "git+https://github.com/NixOS/nixpkgs?shallow=1&ref=nixos-unstable";
 
-    determinate-nix.url = "git+https://github.com/DeterminateSystems/nix-src?shallow=1";
+    determinate-nix = {
+      url = "git+https://github.com/DeterminateSystems/nix-src?shallow=1";
+      # Machines keep every input for offline rebuilds. Nix's own test and
+      # development inputs would each add a copy of nixpkgs; reuse ours instead.
+      # Following the root flake ("") would make project input graphs cyclic.
+      inputs = {
+        nixpkgs.follows = "nixpkgs";
+        nixpkgs-regression.follows = "nixpkgs";
+        nixpkgs-23-11.follows = "nixpkgs";
+        flake-parts.follows = "flake-parts";
+        git-hooks-nix.follows = "git-hooks-nix";
+      };
+    };
 
     flake-parts.url = "git+https://github.com/hercules-ci/flake-parts?shallow=1";
 

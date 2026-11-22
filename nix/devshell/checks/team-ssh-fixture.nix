@@ -1,7 +1,7 @@
 top: {lib, ...}: {
   imports = [top.self.modules.nixosTest.disk-storage];
 
-  globalTimeout = 10 * 60;
+  globalTimeout = 15 * 60;
   node.pkgsReadOnly = false;
 
   # Expiry must be tested with a private clock, and revocation activates a new

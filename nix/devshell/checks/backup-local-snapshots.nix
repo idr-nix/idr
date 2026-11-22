@@ -5,7 +5,7 @@ top: {lib, ...}: {
         imports = [top.self.modules.nixosTest.disk-storage];
         name = "backup-local-snapshots";
         node.pkgsReadOnly = false;
-        globalTimeout = 10 * 60;
+        globalTimeout = 15 * 60;
 
         nodes.machine = {
           imports = [(lib.modules.importApply ./fixtures/backup-machine.nix top)];

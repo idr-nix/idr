@@ -37,6 +37,11 @@ top: {lib, ...}: {
             BatchMode yes
             ConnectTimeout 10
         '';
+        # The project's SSH configuration includes this file, and SSH rejects
+        # included files owned outside the container's user namespace, such as
+        # the store file of systemd's SSH proxy configuration.
+        environment.etc."ssh/ssh_config".mode = "0644";
+        programs.ssh.systemd-ssh-proxy.enable = false;
         systemd.tmpfiles.rules = [
           "d /home/operator/.ssh 0700 operator operator -"
           "C /home/operator/.ssh/id_ecdsa 0600 operator operator - ${sshKeys.snakeOilPrivateKey}"

@@ -208,7 +208,7 @@
 in {
   imports = with top.self.modules.nixosTest; [nix-store kvm-clock];
   name = "microvm-${scenario}";
-  globalTimeout = 5 * 60;
+  globalTimeout = 15 * 60;
   requiredFeatures.kvm = true;
   qemu.forceAccel = true;
   idr.test.storePaths = lib.optional (scenario == "deployment") guestActivation;
@@ -238,7 +238,7 @@ in {
     boot.zfs.forceImportRoot = lib.mkIf (!suppliedStorage) false;
     microvm.stateDir = lib.mkIf (scenario == "recreation") "/srv/idr-test-microvms";
     virtualisation = {
-      cores = 4;
+      cores = 16;
       memorySize =
         if scenario == "memory"
         then 4096

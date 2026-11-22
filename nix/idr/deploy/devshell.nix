@@ -7,10 +7,20 @@ top: {
 }: let
   scripts = ../../scripts;
   upstreamDeploy = top.inputs.deploy-rs.packages.${pkgs.stdenv.hostPlatform.system}.default;
-  deploy = upstreamDeploy.overrideAttrs (old: {
+  patchedDeploy = upstreamDeploy.overrideAttrs (old: {
     # Remote derivation copies should honor the same signature policy as local deployments.
     patches = (old.patches or []) ++ [./remote-build-signatures.patch];
   });
+  # Demarcated output pipes the remote activation through deploy, which exits
+  # when activation fails and so interrupts the machine's automatic rollback.
+  deploy = pkgs.symlinkJoin {
+    name = "deploy-rs";
+    paths = [patchedDeploy];
+    nativeBuildInputs = [pkgs.makeWrapper];
+    postBuild = ''
+      wrapProgram $out/bin/deploy --add-flags --no-demarcate-output
+    '';
+  };
   nixos-anywhere = pkgs.callPackage ./nixos-anywhere-package.nix {};
 
   idr-unlock-disks =

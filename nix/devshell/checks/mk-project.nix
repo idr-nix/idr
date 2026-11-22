@@ -5,6 +5,22 @@ top: {lib, ...}: {
       inherit (config.node.pkgs.stdenv.hostPlatform) system;
       devshell = top.self.packages.${system}.default;
       example = "example-${system}";
+      # Test images skip Argon2's per-format calibration and use lz4 instead of
+      # zstd; in nested builders both cost minutes per image. Real machines keep
+      # cryptsetup's defaults and the example's compression.
+      testImages = pkgs.writeText "test-images.nix" ''
+        {lib, ...}: {
+          disko.devices.disk = lib.genAttrs ["disk-1" "disk-2"] (_: {
+            content.partitions.p1.content.extraFormatArgs = ["--pbkdf" "pbkdf2" "--pbkdf-force-iterations" "1000"];
+          });
+          disko.devices.zpool.p1 = {
+            rootFsOptions.compression = lib.mkForce "lz4";
+            datasets = lib.genAttrs ["local" "local/root" "local/nix" "local/persist"] (_: {
+              options.compression = lib.mkForce "lz4";
+            });
+          };
+        }
+      '';
     in {
       imports = with top.self.modules.nixosTest; [base operator];
 
@@ -57,6 +73,7 @@ top: {lib, ...}: {
                 "cp --no-preserve=mode ${top.self}/templates/machine/flake-module.nix nix/machine/flake-module.nix && "
                 "cp -r --no-preserve=mode ${top.self}/nix/machine/${example} nix/machine/test-machine && "
                 "sed -i s/${example}/test-machine/g nix/machine/test-machine/flake-module.nix nix/machine/test-machine/configuration.nix && "
+                "cp --no-preserve=mode ${testImages} nix/machine/test-machine/config/test-images.nix && "
                 "find nix/machine -type f -exec chmod 0600 {} + && "
                 "git add nix/machine && "
                 "install -D -m 0600 ${top.self}/.data/machine-host-key/${example} .data/machine-host-key/test-machine && "
