@@ -6,9 +6,52 @@ top: moduleArgs @ {
   options,
   ...
 }: let
+  inherit (top.idr-lib) isSecret;
   secrets-source = config.idr.secrets-source;
   isSopsSecret = source: source.sopsFile != null;
-  sopsSources = lib.filterAttrs (_: secret: isSopsSecret secret) secrets-source;
+  # A source's reference follows from its name alone.
+  reference = name: source: {
+    path =
+      if isSopsSecret source
+      then config.sops.secrets.${name}.path
+      else "/run/idr-secrets/${name}";
+    group = "keys_${name}";
+    reloadTarget = "op-key-${name}-reload.target";
+    restartTarget = "op-key-${name}-restart.target";
+  };
+  resolve = name: value:
+    if isSecret value
+    then value
+    else reference name value;
+  # The sources to provide, including those nested in a generated secret's
+  # inputs, which are named after their parent and variable. A reference is an
+  # alias and provides nothing. A reference may itself be read from
+  # idr.secrets, so the keys of idr.secrets-source and idr.secrets must not
+  # depend on telling references from sources: both are lazy attribute sets,
+  # and idr.secrets lists only the top-level names.
+  flatten = prefix: values:
+    lib.concatLists (lib.mapAttrsToList (name: value: let
+      full = prefix + name;
+    in
+      lib.optionals (!isSecret value) (
+        [(lib.nameValuePair full (value // {secrets = lib.mapAttrs (variable: resolve "${full}-${variable}") value.secrets;}))]
+        ++ flatten "${full}-" value.secrets
+      ))
+    values);
+  flattened = flatten "" secrets-source;
+  sources = lib.listToAttrs flattened;
+  sopsSources = lib.filterAttrs (_: isSopsSecret) sources;
+  # Without exec or template, the inputs become a systemd EnvironmentFile.
+  environmentFile = names: ''
+    ${pkgs.jq}/bin/jq -rn \
+      '$ARGS.positional[] as $name
+        | $name + "=\"" + (
+            $ENV[$name]
+            | split("\\") | join("\\\\")
+            | split("\"") | join("\\\"")
+          ) + "\""' \
+      --args ${lib.escapeShellArgs names}
+  '';
 in {
   key = toString ./nixos-module.nix;
 
@@ -16,92 +59,9 @@ in {
     secrets-source = lib.mkOption {
       description = ''
         Declarative secret sources specifying how each secret is derived from SOPS or exec scripts.
+        A secret reference makes the name an alias of that secret.
       '';
-      type = lib.types.attrsOf (lib.types.submodule ({
-        name,
-        config,
-        ...
-      }: {
-        options = {
-          key = lib.mkOption {
-            description = ''
-              SOPS secret key.
-            '';
-            type = lib.types.str;
-            defaultText = "<name>";
-            default = name;
-          };
-          sopsFile = lib.mkOption {
-            description = ''
-              SOPS file to read a secret from.
-
-              If specified, then "exec"/"template"/"secrets" fields will be ignored,
-                instead secret will be extracted from sops file using "key" field.
-            '';
-            type = lib.types.nullOr lib.types.path;
-            default = null;
-          };
-          format = lib.mkOption {
-            description = ''
-              Format of the SOPS file. When null, use sops-nix's configured format
-              (YAML by default); sops-nix does not infer it from the file extension.
-            '';
-            type = lib.types.nullOr (lib.types.enum ["yaml" "json" "binary" "dotenv" "ini"]);
-            default = null;
-          };
-          path = lib.mkOption {
-            description = ''
-              Custom runtime path for a SOPS secret. When null, use sops-nix's
-              default path. Read the resolved path from config.idr.secrets.<name>.path.
-            '';
-            type = lib.types.nullOr lib.types.str;
-            default = null;
-          };
-          restartUnits = lib.mkOption {
-            description = "Additional systemd units for sops-nix to restart when this SOPS secret changes.";
-            type = lib.types.listOf lib.types.str;
-            default = [];
-          };
-          reloadUnits = lib.mkOption {
-            description = "Additional systemd units for sops-nix to reload when this SOPS secret changes.";
-            type = lib.types.listOf lib.types.str;
-            default = [];
-          };
-          exec = lib.mkOption {
-            description = ''
-              Shell code or an executable derivation to generate the secret.
-            '';
-            type = lib.types.coercedTo lib.types.package toString lib.types.str;
-            defaultText = "<script to generate key-value pair which can be used in systemd's EnvironmentFile>";
-            default = ''
-              ${pkgs.jq}/bin/jq -rn \
-                '$ARGS.positional[] as $name
-                  | $name + "=\"" + (
-                      $ENV[$name]
-                      | split("\\") | join("\\\\")
-                      | split("\"") | join("\\\"")
-                    ) + "\""' \
-                --args ${lib.escapeShellArgs (builtins.attrNames config.secrets)}
-            '';
-          };
-          template = lib.mkOption {
-            description = ''
-              Template with variables, which will be processed via envsubst.
-
-              If specified, takes precedence over exec script.
-            '';
-            type = lib.types.nullOr lib.types.str;
-            default = null;
-          };
-          secrets = lib.mkOption {
-            description = ''
-              Secrets which will be available in exec script or in envsubst.
-            '';
-            type = lib.types.attrsOf top.idr-lib.types.secret;
-            default = {};
-          };
-        };
-      }));
+      type = lib.types.lazyAttrsOf top.idr-lib.types.secretOrSource;
       default = {};
       example = lib.literalExpression ''
         {
@@ -128,15 +88,31 @@ in {
       description = ''
         Resolved secrets generated from idr.secrets-source, providing paths and access control metadata.
       '';
-      type = lib.types.attrsOf top.idr-lib.types.secret;
+      type = lib.types.lazyAttrsOf top.idr-lib.types.secret;
       default = {};
+    };
+    secrets-sops-files = lib.mkOption {
+      description = "SOPS files this machine reads secrets from, each with the machines of other projects its source names as recipients.";
+      internal = true;
+      readOnly = true;
+      type = lib.types.listOf lib.types.raw;
+      # Not deduplicated: comparing machine configurations would evaluate them.
+      default =
+        lib.mapAttrsToList (_: source: {
+          file = source.sopsFile;
+          inherit (source) recipientMachines;
+        })
+        sopsSources;
+      defaultText = "The SOPS files of idr.secrets-source, including nested sources.";
     };
   };
   config = lib.mkMerge [
     {
-      systemd.tmpfiles.rules = lib.optional (secrets-source == {}) "R /run/idr-secrets - - - -";
+      idr.secrets = lib.mapAttrs resolve secrets-source;
 
-      assertions = lib.optionals (secrets-source != {}) [
+      systemd.tmpfiles.rules = lib.optional (sources == {}) "R /run/idr-secrets - - - -";
+
+      assertions = lib.optionals (sources != {}) [
         {
           assertion = options ? sops;
           message = "sops module must be imported.";
@@ -144,20 +120,24 @@ in {
         {
           assertion =
             lib.all
-            (name: isSopsSecret secrets-source.${name} || !(builtins.elem name [".out" ".secret" ".ignore" ".input-hashes"]))
-            (builtins.attrNames secrets-source);
+            (name: isSopsSecret sources.${name} || !(builtins.elem name [".out" ".secret" ".ignore" ".input-hashes"]))
+            (builtins.attrNames sources);
           message = "Generated idr.secrets-source names must not be .out, .secret, .ignore, or .input-hashes.";
+        }
+        {
+          assertion = lib.allUnique (map (entry: entry.name) flattened);
+          message = "idr.secrets-source: a nested source is named <parent>-<variable>, which must not be the name of another source.";
         }
       ];
     }
 
-    (lib.mkIf (secrets-source != {}) (lib.optionalAttrs (options ? sops) {
+    (lib.mkIf (sources != {}) (lib.optionalAttrs (options ? sops) {
       users.groups =
         (lib.concatMapAttrs
           (name: secret: {
             "keys_${name}" = {};
           })
-          secrets-source)
+          sources)
         // {
           keys = {};
         };
@@ -177,14 +157,14 @@ in {
             partOf = after;
           };
         })
-        secrets-source;
+        sources;
 
       systemd.services.idr-secrets = let
-        templateSecrets = lib.filterAttrs (name: secret: !(isSopsSecret secret)) secrets-source;
+        templateSecrets = lib.filterAttrs (name: secret: !(isSopsSecret secret)) sources;
         templateNames = builtins.attrNames templateSecrets;
         isDependency = producer: consumer:
           lib.any
-          (secret: toString secret.path == toString config.idr.secrets.${producer}.path)
+          (secret: toString secret.path == toString (reference producer templateSecrets.${producer}).path)
           (builtins.attrValues templateSecrets.${consumer}.secrets);
         templateOrder = lib.toposort isDependency templateNames;
         orderedTemplateNames =
@@ -213,7 +193,7 @@ in {
         };
         unitConfig = {
           DefaultDependencies = "no";
-          ReloadPropagatedFrom = lib.mapAttrsToList (name: _: "op-key-${name}-reload.target") secrets-source;
+          ReloadPropagatedFrom = lib.mapAttrsToList (name: _: "op-key-${name}-reload.target") sources;
         };
         path = with pkgs; [gettext bash ripgrep findutils diffutils coreutils];
         restartIfChanged = true;
@@ -230,12 +210,14 @@ in {
               group = config.users.groups."keys_${templateName}".name;
               vars = lib.mapAttrsToList (name: secret: "\$${name}") template.secrets;
               mkSecret = pkgs.writeScript "mk-secret.sh" (
-                if template.template == null
-                then template.exec
-                else ''
+                if template.template != null
+                then ''
                   printf '%s' ${lib.escapeShellArg template.template} \
                     | ${pkgs.gettext}/bin/envsubst ${lib.escapeShellArg (lib.concatStringsSep " " vars)}
                 ''
+                else if template.exec != null
+                then template.exec
+                else environmentFile (builtins.attrNames template.secrets)
               );
             in ''
               echo "/${templateName}" >> "$RUNTIME_DIRECTORY/.ignore"
@@ -345,19 +327,6 @@ in {
           // lib.optionalAttrs (secret.format != null) {inherit (secret) format;}
           // lib.optionalAttrs (secret.path != null) {inherit (secret) path;})
         sopsSources;
-
-      idr.secrets =
-        lib.mapAttrs
-        (name: secret: {
-          path =
-            if isSopsSecret secret
-            then config.sops.secrets.${name}.path
-            else "/run/idr-secrets/${name}";
-          group = config.users.groups."keys_${name}".name;
-          reloadTarget = "op-key-${name}-reload.target";
-          restartTarget = "op-key-${name}-restart.target";
-        })
-        secrets-source;
     }))
   ];
 }

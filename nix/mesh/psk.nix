@@ -33,6 +33,11 @@ in {
       };
     })
     {
+      # Each workload's ID and declared peers, with the paths of their PSKs.
+      environment.etc = lib.mapAttrs' (name: service:
+        lib.nameValuePair "idr-mesh/settings/${name}.json" {source = service.settingsFile;})
+      meshServices;
+
       systemd.services =
         lib.concatMapAttrs applyServices meshServices
         // {

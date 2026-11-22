@@ -20,8 +20,8 @@ in {
     peers = mkOption {
       type = types.attrsOf (types.submodule {
         options.psk = mkOption {
-          type = top.idr-lib.types.secret;
-          description = "Runtime secret reference containing the WireGuard preshared key shared by this pair of services.";
+          type = top.idr-lib.types.secretOrSource;
+          description = "WireGuard preshared key shared by this pair of services, as a runtime secret reference or a secret source.";
         };
       });
       default = {};
@@ -35,11 +35,6 @@ in {
       message = "idr.mesh.peers keys must be twelve lowercase hexadecimal digits.";
     }
   ];
-
-  config.configData."idr-mesh.json".text = builtins.toJSON {
-    inherit (cfg) id;
-    peers = lib.mapAttrs (_: peer: {psk = toString peer.psk.path;}) cfg.peers;
-  };
 
   config.systemd.service = {name, ...}: {
     wants = ["idr-mesh-agent.service" "idr-mesh-apply@${name}.service" "idr-mesh-dns.service"];

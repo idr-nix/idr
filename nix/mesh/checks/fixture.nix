@@ -190,7 +190,7 @@ in {
             if name == "beta"
             then {password = secret "etcd-password-mesh-beta";}
             else {
-              passwordSource = {
+              password = {
                 sopsFile = ./fixtures/etcd-passwords.enc.json;
                 key = "mesh-${name}";
               };

@@ -1,7 +1,6 @@
 top: {
   config,
   lib,
-  options,
   pkgs,
   utils,
   ...
@@ -18,13 +17,7 @@ top: {
   # systemd expands % specifiers in LoadCredential= values.
   literal = lib.replaceStrings ["%"] ["%%"];
   loadCredential = name: secret: "${name}:${literal (toString secret.path)}";
-  # The units need the password before assertions could report its absence.
-  etcdPassword =
-    if (cfg.etcd.password == null) == (cfg.etcd.passwordSource == null)
-    then throw "Set exactly one of idr.mesh.etcd.password and idr.mesh.etcd.passwordSource."
-    else if cfg.etcd.passwordSource == null
-    then cfg.etcd.password
-    else config.idr.secrets.idr-mesh-etcd-password;
+  etcdPassword = config.idr.secrets.idr-mesh-etcd-password;
   meshEtcd = {
     credentials = [(loadCredential "password" etcdPassword)];
     restartTargets = [etcdPassword.restartTarget];
@@ -37,15 +30,23 @@ top: {
   # Modular services can own subservices. Use their systemd unit names as
   # inventory keys, including when a subservice has the empty name.
   collect = name: service:
-    lib.optionalAttrs (service.configData ? "idr-mesh.json") {
-      ${name} = {
-        inherit (service.idr.mesh) id peers;
-        settingsFile = service.configData."idr-mesh.json".source;
-        pskTargets = lib.unique (lib.mapAttrsToList (_: peer: peer.psk.restartTarget) service.idr.mesh.peers);
-      };
+    lib.optionalAttrs ((service.idr or {}) ? mesh) {
+      ${name} = {inherit (service.idr.mesh) id peers;};
     }
     // lib.concatMapAttrs (child: collect (lib.concatStringsSep "-" (lib.filter (part: part != "") [name child]))) service.services;
-  meshServices = lib.concatMapAttrs collect config.system.services;
+  # Each PSK becomes a local secret: a source, or an alias of a reference.
+  pskName = name: peer: "idr-mesh-psk-${top.idr-lib.shortHash 16 name}-${peer}";
+  meshServices = lib.mapAttrs (name: service: let
+    psks = lib.mapAttrs (peer: _: config.idr.secrets.${pskName name peer}) service.peers;
+  in
+    service
+    // {
+      settingsFile = pkgs.writeText "idr-mesh-settings.json" (builtins.toJSON {
+        inherit (service) id;
+        peers = lib.mapAttrs (_: psk: {psk = toString psk.path;}) psks;
+      });
+      pskTargets = lib.unique (lib.mapAttrsToList (_: psk: psk.restartTarget) psks);
+    }) (lib.concatMapAttrs collect config.system.services);
 in {
   key = toString ./nixos-module.nix;
 
@@ -110,22 +111,9 @@ in {
         description = "etcd user for this machine's mesh agent.";
       };
       password = mkOption {
-        type = types.nullOr top.idr-lib.types.secret;
-        default = null;
-        description = "Runtime secret reference containing the etcd user's password. The machines in rbacMachines cannot read it, so set the user's password on them as well.";
-      };
-      # Telling a source from a reference by its value would make the secret
-      # sources depend on the secrets they define.
-      passwordSource = mkOption {
-        type = types.nullOr top.idr-lib.types.sopsSource;
-        default = null;
-        description = "SOPS key holding the etcd user's password, read instead of password. The machines in rbacMachines read it from this source. Keep it in a file of its own: they can decrypt the whole file.";
-      };
-      rbacMachines = mkOption {
-        type = types.listOf types.raw;
-        default = [];
-        example = lib.literalExpression "[ inputs.etcd.nixosConfigurations.etcd-1 ]";
-        description = "Machines that configure this machine's etcd user. They become recipients of the passwordSource's SOPS file.";
+        type = top.idr-lib.types.secretOrSource;
+        example = lib.literalExpression ''{ sopsFile = ./mesh-etcd.enc.json; key = "password"; }'';
+        description = "The etcd user's password, as a runtime secret reference or a secret source. The RBAC machines also read a source and become recipients of its SOPS file, so keep it in a file of its own; list RBAC machines of other projects in its recipientMachines. A reference stays local: also set the user's password on the RBAC machines.";
       };
       access = mkOption {
         type = types.raw;
@@ -138,7 +126,11 @@ in {
         in {
           inherit (cfg) ipv6Prefix;
           user = cfg.etcd.username;
-          inherit (cfg.etcd) passwordSource;
+          # Other machines can read a source, but not a local reference.
+          password =
+            if top.idr-lib.isSecret cfg.etcd.password
+            then null
+            else cfg.etcd.password;
           inherit write;
           read = lib.subtractLists write (lib.unique peers);
         };
@@ -150,9 +142,11 @@ in {
     environment.etc.${setupTarget}.source = meshExe;
     # `idr-mesh status` for operators.
     environment.systemPackages = [meshPackage];
-    idr.secrets-source.idr-mesh-etcd-password = lib.mkIf (cfg.etcd.passwordSource != null) {
-      inherit (cfg.etcd.passwordSource) sopsFile key format;
-    };
+    idr.secrets-source =
+      {idr-mesh-etcd-password = cfg.etcd.password;}
+      // lib.concatMapAttrs (name: service:
+        lib.mapAttrs' (peer: declaration: lib.nameValuePair (pskName name peer) declaration.psk) service.peers)
+      meshServices;
     # The agent and netd read the enabled services from one generation.
     environment.etc."idr-mesh/services.json".text = builtins.toJSON {
       inherit (cfg) ipv6Prefix;
@@ -162,18 +156,6 @@ in {
       }) (lib.filterAttrs (name: _: config.systemd.services.${name}.enable) meshServices);
     };
     assertions = [
-      {
-        # The machines in rbacMachines can decrypt the whole file, so it must not
-        # be the machine's own secrets file.
-        assertion = let
-          machineFiles =
-            lib.optional (options.sops.defaultSopsFile.isDefined or false) config.sops.defaultSopsFile
-            ++ lib.optional (options.idr.preset.base.defaultSopsFile.isDefined or false) config.idr.preset.base.defaultSopsFile;
-        in
-          # A path and a string naming the same project file compare equal as strings.
-          cfg.etcd.passwordSource == null || !(builtins.elem (toString cfg.etcd.passwordSource.sopsFile) (map toString machineFiles));
-        message = "idr.mesh.etcd.passwordSource.sopsFile must not be the machine's default SOPS file: the machines in rbacMachines can decrypt the whole file.";
-      }
       {
         assertion = cfg.dns.ipv6Prefix != cfg.ipv6Prefix;
         message = "idr.mesh.dns.ipv6Prefix must differ from the mesh IPv6 prefix.";

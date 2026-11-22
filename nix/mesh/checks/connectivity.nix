@@ -35,7 +35,7 @@ top: {lib, ...}: {
                     value = json.loads(base64.b64decode(entry["value"]))
                     service_id, instance_id = key.removeprefix(scope).split("/instances/")
                     name = next(name for name, instance in instances.items() if instance["id"] == service_id)
-                    declared_peers = json.loads(members[name].succeed("cat /etc/system-services/app/idr-mesh.json"))["peers"]
+                    declared_peers = json.loads(members[name].succeed("cat /etc/idr-mesh/settings/app.json"))["peers"]
                     assert len(declared_peers) == (129 if name == "alpha" else 1)
                     assert int(entry["lease"]) != 0
                     assert value["publicAddresses"] == [instances[name]["address"]]

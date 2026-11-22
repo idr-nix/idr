@@ -91,16 +91,8 @@ top: {
           type = types.attrsOf (types.submodule {
             options = {
               password = mkOption {
-                type = types.nullOr secret;
-                default = null;
-                description = "etcd user password.";
-              };
-              # Telling a source from a reference by its value would make the
-              # secret sources depend on the secrets they define.
-              passwordSource = mkOption {
-                type = types.nullOr top.idr-lib.types.sopsSource;
-                default = null;
-                description = "SOPS key holding the password, read on this host instead of password. This host must be a recipient of the file, such as another machine's password file.";
+                type = top.idr-lib.types.secretOrSource;
+                description = "etcd user password, as a runtime secret reference or a secret source, such as a SOPS key in another machine's password file.";
               };
               roles = mkOption {
                 type = types.listOf types.str;

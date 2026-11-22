@@ -56,10 +56,6 @@ in {
             message = "${option}: user names must be nonempty and may not contain ':'.";
           }
           {
-            assertion = lib.all (user: (user.password == null) != (user.passwordSource == null)) (lib.attrValues rbac.users);
-            message = "${option}: each user needs exactly one of password and passwordSource.";
-          }
-          {
             assertion = lib.all (user:
               lib.all (role: role == "root" || builtins.hasAttr role rbac.roles) user.roles)
             (lib.attrValues rbac.users);

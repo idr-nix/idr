@@ -21,5 +21,5 @@ in
     # host, which cannot read it from the machine's configuration.
     users = byUser access (machine:
       {roles = [machine.user];}
-      // lib.optionalAttrs (machine.passwordSource != null) {inherit (machine) passwordSource;});
+      // lib.optionalAttrs (machine.password != null) {inherit (machine) password;});
   }

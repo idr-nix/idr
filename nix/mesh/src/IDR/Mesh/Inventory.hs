@@ -18,7 +18,7 @@ import GHC.Generics (Generic)
 import IDR.Mesh.Common (readJson)
 import IDR.Mesh.Namespace qualified as NS
 import IDR.Mesh.PeerData (MeshPrefix, ServiceId)
-import System.FilePath ((</>))
+import System.FilePath ((<.>), (</>))
 
 data Inventory = Inventory {ipv6Prefix :: MeshPrefix, services :: Map FilePath Service}
   deriving (Generic)
@@ -39,6 +39,6 @@ inventoryFile = "/etc/idr-mesh/services.json"
 readInventory :: IO Inventory
 readInventory = readJson inventoryFile
 
--- The settings a workload's service module declares.
+-- A workload's ID and declared peers, with the paths of their PSKs.
 settingsFile :: String -> FilePath
-settingsFile name = "/etc/system-services" </> name </> "idr-mesh.json"
+settingsFile name = "/etc/idr-mesh/settings" </> name <.> "json"

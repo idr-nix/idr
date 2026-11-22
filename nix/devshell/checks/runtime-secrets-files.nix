@@ -40,6 +40,18 @@ top: {lib, ...}: {
               printf 'stdout is ignored when the generator writes to $out'
             '';
           };
+          api-token-alias = config.idr.secrets.api-token;
+          nested = {
+            secrets = {
+              TOKEN = config.idr.secrets.api-token-alias;
+              DOCUMENT = {
+                sopsFile = ./fixtures/runtime-secrets/initial.enc.json;
+                format = "json";
+                key = "api_token";
+              };
+            };
+            template = "$TOKEN $DOCUMENT";
+          };
         };
 
         systemd.services.my-app = let
@@ -83,6 +95,14 @@ top: {lib, ...}: {
             )
             machine.succeed("cmp /run/idr-secrets/auth-header /run/idr-secrets/output-file")
 
+        with subtest("read an alias and a nested source in a generated file"):
+            machine.succeed(
+                "(cat /run/secrets/api-token; printf ' '; cat /run/secrets/nested-DOCUMENT) | cmp - /run/idr-secrets/nested",
+                "cmp /run/secrets/api-token /run/secrets/nested-DOCUMENT",
+                "test ! -e /run/secrets/api-token-alias",
+                "test ! -e /run/idr-secrets/api-token-alias",
+            )
+
         with subtest("restrict each file to root and its declared secret group"):
             assert machine.succeed("su -s /bin/sh untrusted -c 'id -un'").strip() == "untrusted"
             secret_groups = set()
@@ -92,6 +112,8 @@ top: {lib, ...}: {
                 "/run/idr-secrets/auth-header",
                 "/run/idr-secrets/app-config",
                 "/run/idr-secrets/output-file",
+                "/run/secrets/nested-DOCUMENT",
+                "/run/idr-secrets/nested",
             ]:
                 owner, group, mode = machine.succeed(f"stat -Lc '%U %g %a' {path}").split()
                 assert owner == "root" and mode == "440"

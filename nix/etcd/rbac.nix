@@ -8,19 +8,13 @@ top: {
   reconcile = pkgs.writers.writeNu "idr-etcd-rbac" (builtins.readFile ./setup-users.nu);
   userCredential = name: "user-${top.idr-lib.shortHash 16 name}";
   managed = lib.filterAttrs (_: cluster: cluster.rbac != null) cfg.clusters;
-  # A password read from a SOPS source becomes a local secret.
+  # Each password is a local secret: a source, or an alias of a reference.
   sourceName = clusterName: name: "idr-etcd-rbac-${clusterName}-${userCredential name}";
-  password = clusterName: name: user:
-    if user.passwordSource == null
-    then user.password
-    else config.idr.secrets.${sourceName clusterName name};
+  password = clusterName: name: _: config.idr.secrets.${sourceName clusterName name};
 in {
   config = lib.mkIf cfg.enable {
     idr.secrets-source = lib.concatMapAttrs (clusterName: cluster:
-      lib.concatMapAttrs (name: user:
-        lib.optionalAttrs (user.passwordSource != null) {
-          ${sourceName clusterName name} = {inherit (user.passwordSource) sopsFile key format;};
-        })
+      lib.mapAttrs' (name: user: lib.nameValuePair (sourceName clusterName name) user.password)
       cluster.rbac.users)
     managed;
 

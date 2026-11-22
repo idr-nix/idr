@@ -143,6 +143,126 @@ in
     };
 
     /**
+    # Type
+
+
+        types.secretSource :: OptionType
+
+
+    How a secret is derived, as in `idr.secrets-source.<name>`: a key in a SOPS
+    file, or a file generated from other secrets.
+    */
+    types.secretSource = lib.types.submodule ({name, ...}: {
+      options = {
+        key = lib.mkOption {
+          description = ''
+            SOPS secret key.
+          '';
+          type = lib.types.str;
+          defaultText = "<name>";
+          default = name;
+        };
+        sopsFile = lib.mkOption {
+          description = ''
+            SOPS file to read a secret from.
+
+            If specified, then "exec"/"template"/"secrets" fields will be ignored,
+              instead secret will be extracted from sops file using "key" field.
+          '';
+          type = lib.types.nullOr lib.types.path;
+          default = null;
+        };
+        format = lib.mkOption {
+          description = ''
+            Format of the SOPS file. When null, use sops-nix's configured format
+            (YAML by default); sops-nix does not infer it from the file extension.
+          '';
+          type = lib.types.nullOr (lib.types.enum ["yaml" "json" "binary" "dotenv" "ini"]);
+          default = null;
+        };
+        path = lib.mkOption {
+          description = ''
+            Custom runtime path for a SOPS secret. When null, use sops-nix's
+            default path. Read the resolved path from config.idr.secrets.<name>.path.
+          '';
+          type = lib.types.nullOr lib.types.str;
+          default = null;
+        };
+        restartUnits = lib.mkOption {
+          description = "Additional systemd units for sops-nix to restart when this SOPS secret changes.";
+          type = lib.types.listOf lib.types.str;
+          default = [];
+        };
+        reloadUnits = lib.mkOption {
+          description = "Additional systemd units for sops-nix to reload when this SOPS secret changes.";
+          type = lib.types.listOf lib.types.str;
+          default = [];
+        };
+        recipientMachines = lib.mkOption {
+          description = ''
+            Machines of other projects that read this SOPS file; they become
+            recipients of it. Machines of the same project that use this source
+            become recipients without being listed.
+          '';
+          type = lib.types.listOf lib.types.raw;
+          default = [];
+          example = lib.literalExpression "[ inputs.etcd.nixosConfigurations.etcd-1 ]";
+        };
+        exec = lib.mkOption {
+          description = ''
+            Shell code or an executable derivation to generate the secret. When
+            null and no template is set, the secrets become a systemd
+            EnvironmentFile.
+          '';
+          type = lib.types.nullOr (lib.types.coercedTo lib.types.package toString lib.types.str);
+          default = null;
+        };
+        template = lib.mkOption {
+          description = ''
+            Template with variables, which will be processed via envsubst.
+
+            If specified, takes precedence over exec script.
+          '';
+          type = lib.types.nullOr lib.types.str;
+          default = null;
+        };
+        secrets = lib.mkOption {
+          description = ''
+            Secrets available to the exec script or the template, as references
+            or sources.
+          '';
+          type = lib.types.attrsOf idr-lib.types.secretOrSource;
+          default = {};
+          # The documentation would otherwise recurse into nested sources.
+          visible = "shallow";
+        };
+      };
+    });
+
+    /**
+    # Type
+
+
+        types.secretOrSource :: OptionType
+
+
+    A runtime secret reference, such as `config.idr.secrets.<name>`, or a
+    secret source (`types.secretSource`), such as
+    `{ sopsFile = ./x.enc.json; key = "password"; }`.
+    */
+    types.secretOrSource = let
+      reference = lib.types.addCheck idr-lib.types.secret idr-lib.isSecret;
+      source = idr-lib.types.secretSource;
+    in
+      lib.types.either reference source
+      // {
+        name = "secretOrSource";
+        description = "secret reference or secret source";
+        descriptionClass = "noun";
+        inherit (source) getSubOptions;
+      };
+
+    /**
     Import all `flake-module.nix` files from subdirectories in a given folder.
 
     # Example
@@ -473,11 +593,12 @@ in
     Derive etcd users and roles for the mesh agents of some machines, for
     `idr.etcd.clusters.<name>.rbac`. Each machine with the mesh enabled gets
     its own user and role named after `idr.mesh.etcd.username`: read and write
-    on the services it declares, and read on their peers. A machine's password
-    is read from its `idr.mesh.etcd.passwordSource`, so the RBAC machine must be
-    listed in that machine's `idr.mesh.etcd.rbacMachines`. For a machine that
-    passes a runtime secret as `idr.mesh.etcd.password`, set the user's
-    `password` on the RBAC machine.
+    on the services it declares, and read on their peers. The user's password
+    is the machine's `idr.mesh.etcd.password` when that is a secret source:
+    RBAC machines of the same project become recipients of its SOPS file, and
+    those of other projects must be listed in its `recipientMachines`. When it
+    is a secret reference, set the user's `password` on the RBAC machine
+    yourself.
 
     # Example
 

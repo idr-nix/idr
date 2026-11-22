@@ -92,8 +92,9 @@ passwords, role assignments, and permissions on deployment or secret changes.
 It removes undeclared users and roles, except the built-in `root` account and
 role.
 
-Instead of `password`, a user can set `passwordSource` to a SOPS key in a file
-that this host can decrypt, such as another machine's password file.
+A user's `password` can also be a
+[secret source](../secrets/README.md#secret-references-or-sources), such as a
+SOPS key in another machine's password file.
 
 After bootstrap, `rootPassword` must match the existing administrator password.
 Enable RBAC before allowing application clients to connect.

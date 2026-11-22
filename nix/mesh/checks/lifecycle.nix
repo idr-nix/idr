@@ -351,7 +351,7 @@ top: {lib, ...}: {
               alpha.succeed("systemctl stop idr-mesh-netd.service")
               deploy(alpha, "disable-replica")
               alpha.succeed(
-                  "test -f /etc/system-services/replica/idr-mesh.json",
+                  "test -f /etc/idr-mesh/settings/replica.json",
                   "systemctl show replica.service --property=LoadState --value | grep -Fx masked",
               )
               wait_records(3, {removed["publicKey"]})

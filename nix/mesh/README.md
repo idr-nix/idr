@@ -9,20 +9,24 @@ idr.mesh = {
   etcd = {
     endpoint = "http://main.etcd.internal:1023";
     username = "mesh-${config.networking.hostName}";
-    passwordSource = {
+    password = {
       sopsFile = ./mesh-etcd.enc.json;
       key = "password";
     };
-    rbacMachines = [inputs.etcd.nixosConfigurations.etcd-1];
   };
 };
 ```
 
 Configure the [local proxy](../etcd/README.md#local-proxy) through the etcd
-module. Peer PSKs use [runtime secret references](../secrets/README.md).
+module. The password and peer PSKs accept a
+[secret reference or source](../secrets/README.md#secret-references-or-sources).
 
-Keep each machine's password in a SOPS file of its own; the machines in
-`rbacMachines` can decrypt it. On those machines, derive the etcd
+Keep each machine's password in a SOPS file of its own: the RBAC machines read
+it and become recipients of the file. List RBAC machines of other projects in
+the password's `recipientMachines`. A password passed as a reference stays
+local, so also set that user's `password` on the RBAC machines.
+
+On the RBAC machines, derive the etcd
 [users and roles](../etcd/README.md#users-and-roles):
 
 ```nix

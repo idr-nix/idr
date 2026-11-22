@@ -245,22 +245,51 @@ in {
               }
           )
           (subDirectories config.idr.roleDirs));
-      # A mesh machine's etcd password file can also be decrypted by the
-      # machines that configure its etcd user. The file keeps the recipients of
-      # its machine or role directory.
-      meshPasswords = lib.concatLists (lib.mapAttrsToList (name: machine: let
-        mesh = machine.config.idr.mesh or {enable = false;};
-        source = mesh.etcd.access.passwordSource;
-        file = lib.removePrefix "${self}/" (toString source.sopsFile);
-        owner = lib.findFirst (entry: lib.hasPrefix "${entry.dir}/" file) null (machines ++ roles);
+      # Project files by their path below the project root, others as null.
+      projectFile = file: let
+        path = toString file;
       in
-        lib.optional (mesh.enable && source != null && mesh.etcd.rbacMachines != []) {
-          inherit file;
-          recipients =
-            if owner == null
-            then throw "The mesh etcd password of ${name} must be in a machine or role directory of this project."
-            else owner.recipients ++ map machineRecipient mesh.etcd.rbacMachines;
-        }) (self.nixosConfigurations or {}));
+        if lib.hasPrefix "${self}/" path
+        then lib.removePrefix "${self}/" path
+        else null;
+      defaultFiles = lib.concatMap (machine:
+        map projectFile (
+          lib.optional ((machine.config.idr.preset.base.defaultSopsFile or null) != null) machine.config.idr.preset.base.defaultSopsFile
+          ++ lib.optional (machine.options.sops.defaultSopsFile.isDefined or false) machine.config.sops.defaultSopsFile
+        ))
+      (lib.attrValues (self.nixosConfigurations or {}));
+      # A machine that reads a SOPS file of another machine or role directory
+      # also becomes a recipient of that file, as do the machines of other
+      # projects that its source lists. The file keeps the recipients of its
+      # directory. Files outside the project, or outside machine and role
+      # directories, follow their own rules.
+      sharedFiles = lib.concatMap (reader: let
+        machine = self.nixosConfigurations.${reader.name};
+        defaultFile = machine.config.idr.preset.base.defaultSopsFile or null;
+        # A machine without a key yet, such as one not installed, gets none.
+        recipient =
+          (lib.optionalAttrs (defaultFile != null && lib.hasSuffix ".json" (toString defaultFile)) (lib.importJSON defaultFile))
+          .ssh_host_ed25519_key_age_pub_unencrypted
+          or null;
+      in
+        lib.concatMap (source: let
+          file = projectFile source.file;
+          owner = lib.findFirst (entry: lib.hasPrefix "${entry.dir}/" file) null (machines ++ roles);
+          added =
+            lib.optional (recipient != null && !(builtins.elem recipient owner.recipients)) recipient
+            ++ map machineRecipient source.recipientMachines;
+        in
+          lib.optional (file != null && owner != null && added != []) (
+            # The added recipients can decrypt the whole file.
+            if builtins.elem file defaultFiles
+            then throw "${file} is the default SOPS file of a machine, but a secret of ${reader.name} shares it with other machines, which could then decrypt all of it. Keep secrets shared with other machines in a file of their own."
+            else {
+              inherit file;
+              recipients = owner.recipients ++ added;
+            }
+          ))
+        (machine.config.idr.secrets-sops-files or []))
+      machines;
     in
       lib.mapAttrsToList (file: entries: {
         priority = 1;
@@ -268,7 +297,7 @@ in {
           path_regex = "^${lib.escape ["/" "-"] (lib.escapeRegex file)}$";
           age = lib.unique (lib.concatMap (entry: entry.recipients) entries);
         };
-      }) (lib.groupBy (entry: entry.file) meshPasswords)
+      }) (lib.groupBy (entry: entry.file) sharedFiles)
       ++ (map (machine: {
           priority = 1;
           rule = {

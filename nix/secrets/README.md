@@ -90,6 +90,49 @@ Files are owned by root with mode `0440` and a group for each secret.
 When a module option accepts an IDR secret reference, such as the certificate
 options in [LDAP](../ldap/README.md), pass the whole reference.
 
+### Secret references or sources
+
+Options of type `top.idr-lib.types.secretOrSource` accept either a reference:
+
+```nix
+my-module.password = config.idr.secrets.my-password;
+```
+
+or a source, written like an `idr.secrets-source` entry:
+
+```nix
+my-module.password = {
+  sopsFile = ./password.enc.json;
+  key = "password";
+};
+```
+
+Recipients change only when you pass a source, never a reference. The machine
+that uses the source becomes a recipient of its SOPS file in the generated
+`.sops.yaml`, even when the file is in another machine's or role's directory of
+the same project. List machines of other projects in the source's
+`recipientMachines`. Recipients can decrypt the whole file, so keep a shared
+secret in a file of its own; a machine's default SOPS file is refused.
+
+Nothing resolves such an option for you. In your own module, register its value
+in `idr.secrets-source` under a name you choose and read
+`config.idr.secrets.<that name>`:
+
+```nix
+options.my-module.password = lib.mkOption {
+  type = top.idr-lib.types.secretOrSource;
+};
+
+config = {
+  idr.secrets-source.my-module-password = config.my-module.password;
+  systemd.services.my-module.serviceConfig.LoadCredential =
+    "password:${config.idr.secrets.my-module-password.path}";
+};
+```
+
+This works for both forms. A reference creates no new secret: the name just
+points to the existing one. Then [connect the service](#connect-a-service).
+
 ### Connect a service
 
 For example, extend an existing `my-app` service to read the generated `app-env`
