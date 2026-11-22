@@ -101,6 +101,7 @@ top: {flake-parts-lib, ...}: {
     ./checks/local-vm-persistence.nix
     ./checks/local-vm-image-activation-rollback.nix
     ./checks/local-vm-image-boot-rollback.nix
+    ./checks/packages-update.nix
   ];
 
   flake.modules.devshell.idr = flake-parts-lib.importApply ./devshell.nix top;
