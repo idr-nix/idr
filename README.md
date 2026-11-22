@@ -117,6 +117,8 @@ and run `nix run "git+https://github.com/idr-nix/idr" -- idr-mk-project .`
 - [idr-mk-module](./docs/mk-module.md)
 - [LDAP](./nix/ldap/README.md)
 - [etcd](./nix/etcd/README.md)
+- [Service mesh](./nix/mesh/README.md)
+  - [Mesh operations](./docs/mesh-operations.md)
 
 ## License
 
