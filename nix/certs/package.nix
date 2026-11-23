@@ -12,7 +12,7 @@ in
       "--prefix"
       "PATH"
       ":"
-      (pkgs.lib.makeBinPath [pkgs.lego pkgs.sops pkgs.gitMinimal pkgs.coreutils])
+      (pkgs.lib.makeBinPath [pkgs.lego pkgs.sops pkgs.gitMinimal pkgs.coreutils pkgs.openssl])
     ];
   } ''
     source ${../scripts}/idr-update-certs.nu

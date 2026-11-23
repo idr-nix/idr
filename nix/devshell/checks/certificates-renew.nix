@@ -54,6 +54,29 @@ top: {lib, ...}: {
             operator("direnv exec . sha256sum nix/role/tls/certs.enc.yaml > /tmp/renewed-cert.sha256")
             operator(update)
             operator("sha256sum --check /tmp/renewed-cert.sha256")
+
+        with subtest("save missing domains from the certificate without replacing it"):
+            operator(
+                "direnv exec . sops unset nix/role/tls/certs.enc.yaml "
+                + shlex.quote('["tls-first_domains_unencrypted"]')
+            )
+            assert "tls-first_domains_unencrypted" not in decrypt("nix/role/tls/certs.enc.yaml")
+            operator(update)
+            saved = decrypt("nix/role/tls/certs.enc.yaml")
+            assert saved["tls-first_cert"] == renewed["tls-first_cert"]
+            assert saved["tls-first_domains_unencrypted"] == ["first.example.test"]
+
+        with subtest("replace certificates whose declared domains changed"):
+            # Saved domains that differ from the declaration, as after editing it.
+            operator(
+                "direnv exec . sops set nix/role/tls/certs.enc.yaml "
+                + shlex.quote('["tls-first_domains_unencrypted"][0]') + " "
+                + shlex.quote(json.dumps("previous.example.test"))
+            )
+            operator(update)
+            changed = decrypt("nix/role/tls/certs.enc.yaml")
+            assert changed["tls-first_cert"] != renewed["tls-first_cert"]
+            assert changed["tls-first_domains_unencrypted"] == ["first.example.test"]
       '';
     };
   };

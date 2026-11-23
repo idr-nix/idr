@@ -20,16 +20,26 @@ in {
     };
     certs = lib.mkOption {
       type = lib.types.attrsOf (lib.types.submodule {
-        options = lib.mapAttrs (_: _:
-          lib.mkOption {
-            type = top.idr-lib.types.secret;
-            description = "Runtime certificate material and its access and reload metadata.";
-          })
-        fields;
+        options =
+          lib.mapAttrs (_: _:
+            lib.mkOption {
+              type = top.idr-lib.types.secret;
+              description = "Runtime certificate material and its access and reload metadata.";
+            })
+          fields
+          // {
+            domains = lib.mkOption {
+              type = lib.types.listOf lib.types.str;
+              description = "Domain names of the certificate, read from its JSON file during evaluation.";
+            };
+          };
       });
       readOnly = true;
-      default = lib.mapAttrs (name: _: lib.mapAttrs (_: field: config.idr.secrets."${name}_${field}") fields) sources;
-      description = "Certificate chains, private keys, and combined PEM files resolved from idr.certs-source.";
+      default = lib.mapAttrs (name: sopsFile:
+        lib.mapAttrs (_: field: config.idr.secrets."${name}_${field}") fields
+        // {domains = top.idr-lib.certificateDomains name sopsFile;})
+      sources;
+      description = "Certificate chains, private keys, combined PEM files and domain names resolved from idr.certs-source.";
     };
   };
 

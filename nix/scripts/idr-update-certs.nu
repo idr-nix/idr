@@ -1,13 +1,48 @@
 use idr-common.nu [save-atomic]
 
-def cert-is-due [cert_name: string, cert: record] {
+# "due" to issue, "domains" to only save the domains, or "current".
+def cert-state [cert_name: string, cert: record] {
   let sops_file = $cert.sopsFile
   if not ($sops_file | path exists) {
-    return true
+    return "due"
   }
 
-  let issue_date = open $sops_file | get -o $"($cert_name)_issue_date_unencrypted" | default ""
-  $issue_date == "" or ($issue_date | into datetime) + 30day <= (date now)
+  let saved = open $sops_file
+  let issue_date = $saved | get -o $"($cert_name)_issue_date_unencrypted" | default ""
+  if $issue_date == "" or ($issue_date | into datetime) + 30day <= (date now) {
+    return "due"
+  }
+  let declared = $cert.domains | sort
+  let domains = $saved | get -o $"($cert_name)_domains_unencrypted"
+  if $domains != null {
+    return (if ($domains | sort) == $declared { "current" } else { "due" })
+  }
+  # Saved without its domains: read them from the certificate.
+  if (cert-domains $cert_name $sops_file | sort) == $declared { "domains" } else { "due" }
+}
+
+# The DNS names of a saved certificate.
+def cert-domains [cert_name: string, sops_file: string] {
+  sops decrypt --extract $'["($cert_name)_cert"]' $sops_file
+  | openssl x509 -noout -ext subjectAltName
+  | lines | skip 1 | str join ","
+  | split row "," | str trim
+  | where {|name| $name starts-with "DNS:"}
+  | str replace "DNS:" ""
+}
+
+# Merges values into a SOPS file and stages it.
+def save-secrets [sops_file: string, values: record] {
+  let secrets = if ($sops_file | path exists) {
+    sops decrypt --output-type json $sops_file | from json
+  } else { {} }
+  let encrypted = $secrets | merge $values | to json | sops encrypt --input-type json --filename-override $sops_file | complete
+  if $encrypted.exit_code != 0 {
+    error make {msg: $"Could not encrypt ($sops_file): ($encrypted.stderr | str trim)"}
+  }
+  $encrypted.stdout | save-atomic $sops_file
+
+  git add -- $sops_file
 }
 
 def account-exists [email: string] {
@@ -46,21 +81,14 @@ def save-cert [issued: record] {
   let cert_key = (open --raw $"($env.LEGO_PATH)/certificates/($first_domain).key")
   let cert_pem = (open --raw $"($env.LEGO_PATH)/certificates/($first_domain).pem")
 
-  let secrets = if ($sops_file | path exists) {
-    sops decrypt --output-type json $sops_file | from json
-  } else { {} }
-  let encrypted = $secrets | merge {
+  save-secrets $sops_file {
     $"($cert_name)_cert": $cert_value
     $"($cert_name)_cert_key": $cert_key
     $"($cert_name)_cert_pem": $cert_pem
     $"($cert_name)_issue_date_unencrypted": (date now | format date "%+")
-  } | to json | sops encrypt --input-type json --filename-override $sops_file | complete
-  if $encrypted.exit_code != 0 {
-    error make {msg: $"Could not encrypt ($sops_file): ($encrypted.stderr | str trim)"}
+    # Unencrypted, so that evaluation can read them.
+    $"($cert_name)_domains_unencrypted": $cert.domains
   }
-  $encrypted.stdout | save-atomic $sops_file
-
-  git add -- $sops_file
 }
 
 def main [...cert_names: string] {
@@ -84,13 +112,15 @@ def main [...cert_names: string] {
   let selected_certs = $certs | transpose name config | where {|cert|
     ($requested_names | is-empty) or $cert.name in $requested_names
   }
-  let due_certs = $selected_certs | where {|cert|
-    let due = cert-is-due $cert.name $cert.config
-    if not $due {
-      print $"Certificate ($cert.name) already up to date."
-    }
-    $due
+  let states = $selected_certs | each {|cert| $cert | insert state (cert-state $cert.name $cert.config)}
+  for cert in ($states | where state == "current") {
+    print $"Certificate ($cert.name) already up to date."
   }
+  for cert in ($states | where state == "domains") {
+    save-secrets $cert.config.sopsFile {$"($cert.name)_domains_unencrypted": $cert.config.domains}
+    print $"Certificate ($cert.name): saved its domains."
+  }
+  let due_certs = $states | where state == "due"
   if ($due_certs | is-empty) {
     return
   }

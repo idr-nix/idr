@@ -38,6 +38,9 @@ top: {lib, ...}: {
             assert "BEGIN CERTIFICATE" in both["tls-second_cert"]
             assert "BEGIN CERTIFICATE" in both["tls-fourth_cert"]
             assert "BEGIN CERTIFICATE" in decrypt("nix/role/tls/certs.enc.json")["tls-third_cert"]
+            # Evaluation reads the domains without decrypting the file.
+            assert json.loads(operator("cat nix/role/tls/certs.enc.json"))["tls-third_domains_unencrypted"] == ["third.example.test"]
+            assert both["tls-second_domains_unencrypted"] == ["second.example.test"]
             operator("sha256sum --check /tmp/account-before.sha256")
             assert operator("find .data/lego/accounts -name account.json | wc -l").strip() == "1"
             operator("git diff --exit-code -- nix/role/tls/certs.enc.yaml nix/role/tls/certs.enc.json")

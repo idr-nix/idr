@@ -562,6 +562,30 @@ in
     shortHash = size: text: builtins.substring 0 size (builtins.hashString "sha512" text);
 
     /**
+    Read the domains of a certificate issued by `idr-update-certs` from its JSON
+    SOPS file, where they are saved unencrypted.
+
+    # Type
+
+        certificateDomains :: String -> Path -> [String]
+
+    # Arguments
+
+    name
+    : The certificate's name, as in `idr.certs`
+
+    sopsFile
+    : The JSON SOPS file holding the certificate
+    */
+    certificateDomains = name: sopsFile: let
+      key = "${name}_domains_unencrypted";
+    in
+      # Nix reads JSON, but not YAML.
+      if lib.hasSuffix ".json" (toString sopsFile)
+      then (lib.importJSON sopsFile).${key} or (throw "Certificate ${name}: ${toString sopsFile} has no ${key}; run idr-update-certs.")
+      else throw "Certificate ${name}: domains can only be read from a JSON file, not ${toString sopsFile}.";
+
+    /**
     # Type
 
 

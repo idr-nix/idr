@@ -9,7 +9,7 @@ in certificate names to avoid collisions between projects. For example:
 ```nix
 perSystem = {...}: {
   idr.certs."tls-${(lib.importJSON ./meta.json).id}" = {
-    sopsFile = ./certs.enc.yaml;
+    sopsFile = ./certs.enc.json;
     domains = ["example.com" "*.example.com"];
     email = "ops@example.com";
     legoFlags = ["--dns" "cloudflare"];
@@ -32,15 +32,17 @@ idr-update-certs
 ```
 
 The command issues missing certificates and replaces certificates issued at least
-30 days ago. Pass certificate names to select only those certificates:
+30 days ago or whose domains changed. Pass certificate names to select only those
+certificates:
 
 ```sh
 idr-update-certs "tls-<id>"
 ```
 
 Certificates, private keys, and combined PEM files are saved in the configured
-SOPS JSON or YAML files. Certificates can share a file; unrelated entries are
-preserved. Changed files are staged in Git for review.
+SOPS JSON or YAML files, with the domains and the issue date unencrypted.
+Certificates can share a file; unrelated entries are preserved. Changed files
+are staged in Git for review.
 
 Lego stores its account and certificate state under `$PRJ_DATA_DIR/lego`
 (normally `.data/lego`). Preserve that directory between runs to reuse accounts.
@@ -64,16 +66,18 @@ configuration to load the certificates into services.
 In the role's `nixos-module.nix`, register the same certificate name:
 
 ```nix
-idr.certs-source."tls-${(lib.importJSON ./meta.json).id}" = ./certs.enc.yaml;
+idr.certs-source."tls-${(lib.importJSON ./meta.json).id}" = ./certs.enc.json;
 ```
 
-`config.idr.certs.<name>` provides three [secret references](../secrets/README.md):
+`config.idr.certs.<name>` provides three [secret references](../secrets/README.md)
+and the domains:
 
 | Field | Content |
 |---|---|
 | `cert` | Certificate chain |
 | `certKey` | Private key |
 | `certPem` | Combined private key and certificate chain |
+| `domains` | The certificate's domains; JSON files only |
 
 For example, configure an existing LDAP instance with:
 
