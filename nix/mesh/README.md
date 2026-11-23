@@ -86,6 +86,27 @@ If the link addresses overlap a local network, change
 `idr.mesh.published.ipv4Prefix` (default `10.201`, a /16) or
 `idr.mesh.published.ipv6Prefix`.
 
+### Internet access
+
+Allow a workload to open connections to the internet:
+
+```nix
+idr.mesh.internet = {
+  enable = true;
+  allow = [
+    {proto = "tcp"; port = 443;}
+    {proto = "udp"; port = {from = 10000; to = 20000;}; destinations = ["203.0.113.0/24"];}
+  ];
+};
+```
+
+The connections leave with the host's address; others fail at once. Without
+`destinations`, any address is allowed. The workload resolves names outside the
+mesh with the machine's `idr.mesh.internet.nameservers`, by default
+`networking.nameservers`. Changing the access does not restart the workload. Like
+published ports, it needs the nftables firewall with
+`networking.firewall.filterForward` and Linux 6.17 or later.
+
 ### Monitoring
 
 Run `idr-mesh status` as root to print each workload's mesh state as JSON.

@@ -6,6 +6,31 @@ top: {
   inherit (lib) mkOption types;
   cfg = config.idr.mesh;
   serviceIdPattern = "[0-9a-f]{12}";
+  ports = description:
+    mkOption {
+      type = types.either (types.ints.between 1 65535) (types.submodule {
+        options = {
+          from = mkOption {
+            type = types.ints.between 1 65535;
+            description = "First port of the range.";
+          };
+          to = mkOption {
+            type = types.ints.between 1 65535;
+            description = "Last port of the range.";
+          };
+        };
+      });
+      example = {
+        from = 50000;
+        to = 60000;
+      };
+      inherit description;
+    };
+  proto = description:
+    mkOption {
+      type = types.enum ["tcp" "udp"];
+      inherit description;
+    };
 in {
   _class = "service";
   key = toString ./service-module.nix;
@@ -31,29 +56,8 @@ in {
     publish = mkOption {
       type = types.listOf (types.submodule {
         options = {
-          proto = mkOption {
-            type = types.enum ["tcp" "udp"];
-            description = "Transport protocol of the published port.";
-          };
-          port = mkOption {
-            type = types.either (types.ints.between 1 65535) (types.submodule {
-              options = {
-                from = mkOption {
-                  type = types.ints.between 1 65535;
-                  description = "First port of the range.";
-                };
-                to = mkOption {
-                  type = types.ints.between 1 65535;
-                  description = "Last port of the range.";
-                };
-              };
-            });
-            example = {
-              from = 50000;
-              to = 60000;
-            };
-            description = "Port, or range of ports, on the host's addresses, forwarded to the same port of the workload.";
-          };
+          proto = proto "Transport protocol of the published port.";
+          port = ports "Port, or range of ports, on the host's addresses, forwarded to the same port of the workload.";
         };
       });
       default = [];
@@ -65,6 +69,32 @@ in {
       ];
       description = "Ports of the host's addresses to forward to this workload. Connections from other machines keep their client address.";
     };
+
+    internet = {
+      enable = lib.mkEnableOption "connections from this workload to the internet, through the host and only as `allow` permits";
+      allow = mkOption {
+        type = types.listOf (types.submodule {
+          options = {
+            proto = proto "Transport protocol of the allowed connections.";
+            port = ports "Port, or range of ports, that the connections may go to.";
+            destinations = mkOption {
+              type = types.listOf types.nonEmptyStr;
+              default = [];
+              example = ["203.0.113.0/24" "2001:db8::/32"];
+              description = "Addresses or networks that the connections may go to; any when empty.";
+            };
+          };
+        });
+        default = [];
+        example = [
+          {
+            proto = "tcp";
+            port = 443;
+          }
+        ];
+        description = "Connections that the workload may open to the internet. Their source becomes the host's address.";
+      };
+    };
   };
 
   config.assertions = [
@@ -73,8 +103,8 @@ in {
       message = "idr.mesh.peers keys must be twelve lowercase hexadecimal digits.";
     }
     {
-      assertion = lib.all (entry: lib.isInt entry.port || entry.port.from <= entry.port.to) cfg.publish;
-      message = "idr.mesh.publish port ranges must not end before they start.";
+      assertion = lib.all (entry: lib.isInt entry.port || entry.port.from <= entry.port.to) (cfg.publish ++ cfg.internet.allow);
+      message = "idr.mesh.publish and idr.mesh.internet.allow port ranges must not end before they start.";
     }
   ];
 

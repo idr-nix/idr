@@ -24,14 +24,16 @@ top: {lib, ...}: {
       defaults = {
         environment.systemPackages = [pkgs.socat];
         networking.firewall.filterForward = true;
-        networking.firewall.allowedTCPPorts = [8081];
-        systemd.services.mesh-publish-host-probe = {
-          wantedBy = ["multi-user.target"];
-          serviceConfig = {
-            ExecStart = "${lib.getExe pkgs.busybox} httpd -f -p [::]:8081 -h ${probeRoot}";
-            DynamicUser = true;
-          };
-        };
+        # 8090 is open too, but outside the internet access tested below.
+        networking.firewall.allowedTCPPorts = [8081 8090];
+        systemd.services = lib.listToAttrs (map (port:
+          lib.nameValuePair "mesh-publish-host-probe-${port}" {
+            wantedBy = ["multi-user.target"];
+            serviceConfig = {
+              ExecStart = "${lib.getExe pkgs.busybox} httpd -f -p [::]:${port} -h ${probeRoot}";
+              DynamicUser = true;
+            };
+          }) ["8081" "8090"]);
       };
 
       nodes =
@@ -63,6 +65,46 @@ top: {lib, ...}: {
               serviceConfig.DynamicUser = true;
             };
           };
+          # A workload with internet access, which beta stands in for, also
+          # for names.
+          idr.mesh.internet.nameservers = ["2001:db8:1::2"];
+          system.services.outbound = lib.mkIf (name == "alpha") {
+            imports = [top.self.modules.service.mesh];
+            idr.mesh = {
+              id = "777777777777";
+              internet = {
+                enable = true;
+                allow = [
+                  {
+                    proto = "tcp";
+                    port = {
+                      from = 8080;
+                      to = 8081;
+                    };
+                  }
+                ];
+              };
+            };
+            process.argv = [(lib.getExe' pkgs.coreutils "sleep") "infinity"];
+            systemd.service = {
+              wantedBy = lib.mkOverride 900 [];
+              serviceConfig.DynamicUser = true;
+            };
+          };
+          services.coredns = lib.mkIf (name == "beta") {
+            enable = true;
+            config = ''
+              internet.test:53 {
+                hosts {
+                  2001:db8:1::2 internet.test
+                  192.168.1.2 internet.test
+                }
+              }
+            '';
+          };
+          networking.firewall.allowedUDPPorts = lib.mkIf (name == "beta") [53];
+          # Leaves port 53 to CoreDNS.
+          services.resolved.settings.Resolve.DNSStubListener = lib.mkIf (name == "beta") false;
           # Changes front's ports to a range and gives app its first one.
           specialisation = lib.mkIf (name == "alpha") {
             ports.configuration.system.services = {
@@ -147,6 +189,18 @@ top: {lib, ...}: {
                       f"ip netns exec idr-mesh-front ip -json {family} route show default | jq -r '.[0].gateway'"
                   ).strip()
                   alpha.fail(inside(f"curl --fail --silent --max-time 4 'http://{target(gateway)}:8081/'", "front"))
+
+          with subtest("internet access reaches the allowed ports, also by name, and nothing else"):
+              alpha.succeed("systemctl start outbound.service")
+              alpha.wait_for_unit("idr-mesh-publish@outbound.service")
+              for host in ["internet.test", "[2001:db8:1::2]", "192.168.1.2"]:
+                  reply = alpha.wait_until_succeeds(inside(
+                      f"curl --fail --silent --max-time 4 'http://{host}:8081/'", "outbound"
+                  ), timeout=30)
+                  assert reply.strip() == "reachable", reply
+              # Open, but not allowed.
+              alpha.succeed("curl --fail --silent --max-time 4 'http://[2001:db8:1::2]:8090/'")
+              alpha.fail(inside("curl --fail --silent --max-time 4 'http://[2001:db8:1::2]:8090/'", "outbound"))
 
           with subtest("the link follows the workload"):
               alpha.succeed("systemctl stop front.service")

@@ -31,7 +31,7 @@ top: {
   # inventory keys, including when a subservice has the empty name.
   collect = name: service:
     lib.optionalAttrs ((service.idr or {}) ? mesh) {
-      ${name} = {inherit (service.idr.mesh) id peers publish;};
+      ${name} = {inherit (service.idr.mesh) id peers publish internet;};
     }
     // lib.concatMapAttrs (child: collect (lib.concatStringsSep "-" (lib.filter (part: part != "") [name child]))) service.services;
   # Each PSK becomes a local secret: a source, or an alias of a reference.
@@ -74,6 +74,13 @@ in {
       type = ipv6Prefix;
       default = "fd63:51c5:a6f0";
       description = "Local IPv6 /48 prefix for isolated mesh DNS links, as three full lowercase hexadecimal groups.";
+    };
+
+    internet.nameservers = mkOption {
+      type = types.listOf types.nonEmptyStr;
+      default = config.networking.nameservers;
+      defaultText = lib.literalExpression "config.networking.nameservers";
+      description = "DNS resolvers on the internet that workloads with internet access use for names outside the mesh; the first two count.";
     };
 
     published = {

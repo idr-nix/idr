@@ -77,9 +77,12 @@
     inventory = pkgs.writeText "idr-mesh-dns-${service.hash}.json" (builtins.toJSON {
       services.${name} = profiles.${name};
     });
-    resolv = pkgs.writeText "idr-mesh-resolv-${service.hash}.conf" ''
-      nameserver ${service.serverAddress}
-    '';
+    # With internet access, names that the mesh resolver refuses go to the
+    # internet's resolvers.
+    upstream = lib.optionals meshServices.${name}.internet.enable (lib.take 2 cfg.internet.nameservers);
+    resolv = pkgs.writeText "idr-mesh-resolv-${service.hash}.conf" (
+      lib.concatMapStrings (address: "nameserver ${address}\n") ([service.serverAddress] ++ upstream)
+    );
   in {
     ${name} = {
       environment.LD_LIBRARY_PATH = lib.mkDefault "${userNss}";

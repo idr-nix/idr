@@ -5,9 +5,11 @@
 -- namespace, where nftables forwards them with DNAT and keeps the client's
 -- address. The workload's default route leads through the pair, so replies
 -- need no source address of their own, as UDP servers on a wildcard address
--- send them. The workload's firewall admits only new connections to its
--- published ports and rejects every new connection out, so the link carries
--- nothing else; the host drops what would pass anyway.
+-- send them. Connections that the workload's internet access allows leave
+-- through the pair too, and the host translates their source address. The
+-- workload's firewall admits only new connections to its published ports and
+-- opens only those allowed out, so the link carries nothing else; the host
+-- drops what would pass anyway.
 module IDR.Mesh.Publish (createLink, removeLink) where
 
 import Control.Monad (forM_, unless, when)
@@ -69,8 +71,8 @@ instance FromJSON Profile where
       isIPv4 (IPv4 _) = True
       isIPv4 _ = False
 
--- Nothing when the workload publishes no ports, which leaves it without an
--- inventory.
+-- Nothing when the workload neither publishes ports nor has internet access,
+-- which leaves it without an inventory.
 profileFromInventory :: String -> FilePath -> IO (Maybe Profile)
 profileFromInventory name file = do
   present <- doesFileExist file
@@ -288,7 +290,7 @@ configureEnd end peer = do
     run pin ["ip", family, "neighbor", "replace", address, "lladdr", mac peer, "nud", "permanent", "dev", dev]
 
 -- Creates the link, updates it in place, or removes it when the workload no
--- longer publishes ports. A reload runs this again: an existing link stays up,
+-- longer needs it. A reload runs this again: an existing link stays up,
 -- so the workload keeps its connections.
 createLink :: String -> FilePath -> FilePath -> IO ()
 createLink name inventory stateFile = do

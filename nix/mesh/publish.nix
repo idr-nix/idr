@@ -20,6 +20,10 @@
     in {
       inherit hash;
       ports = lib.unique (map (entry: {inherit (entry) proto port;}) service.publish);
+      # What the workload may open to the internet, as nftables matches.
+      outbound =
+        lib.optionals service.internet.enable
+        (lib.concatMap allowed service.internet.allow ++ map resolver (lib.take 2 cfg.internet.nameservers));
       interface = "idrp${builtins.substring 0 11 hash}";
       alias = "idr-mesh-publish-${hash}";
       hostAddress6 = "${cfg.published.ipv6Prefix}:${subnet}:0001";
@@ -29,7 +33,21 @@
       hostMac = "02:00:00:00:00:01";
       workloadMac = "02:00:00:00:00:02";
     })
-    (lib.filterAttrs (_: service: service.publish != []) meshServices);
+    (lib.filterAttrs (_: service: service.publish != [] || service.internet.enable) meshServices);
+  family = address:
+    if lib.hasInfix ":" address
+    then "ip6"
+    else "ip";
+  # One match per address family of the destinations.
+  allowed = entry: let
+    dport = "${entry.proto} dport ${ports entry.port}";
+  in
+    if entry.destinations == []
+    then [dport]
+    else
+      lib.mapAttrsToList (family: addresses: "${family} daddr { ${lib.concatStringsSep ", " addresses} } ${dport}")
+      (lib.groupBy family entry.destinations);
+  resolver = address: "${family address} daddr ${address} meta l4proto { tcp, udp } th dport 53";
   range = port:
     if lib.isInt port
     then {
@@ -44,8 +62,9 @@
     else "${toString port.from}-${toString port.to}";
   elements = link: lib.concatMapStringsSep ", " (entry: "${entry.proto} . ${ports entry.port}") link.ports;
   # The workload accepts new connections only to its published ports, and
-  # sends only replies through the link, although its default route leads
-  # there. Other connections fail at once instead of timing out.
+  # opens new connections through the link only as its internet access
+  # allows, although its default route leads there. Other connections fail at
+  # once instead of timing out.
   firewall = link:
     pkgs.writeText "idr-mesh-publish-${link.hash}.nft" ''
       add table inet idr_mesh_publish { comment "${link.alias}"; }
@@ -54,14 +73,20 @@
         chain input {
           type filter hook input priority filter; policy accept;
           iifname "${device}" ct state established,related accept
-          iifname "${device}" ct state new ip6 daddr ${link.workloadAddress6} meta l4proto . th dport { ${elements link} } accept
-          iifname "${device}" ct state new ip daddr ${link.workloadAddress4} meta l4proto . th dport { ${elements link} } accept
+          ${lib.optionalString (link.ports != []) ''
+        iifname "${device}" ct state new ip6 daddr ${link.workloadAddress6} meta l4proto . th dport { ${elements link} } accept
+        iifname "${device}" ct state new ip daddr ${link.workloadAddress4} meta l4proto . th dport { ${elements link} } accept
+      ''}
           iifname "${device}" drop
         }
 
         chain output {
           type filter hook output priority filter; policy accept;
           oifname "${device}" ct state established,related accept
+          ${lib.concatMapStrings (match: ''
+          oifname "${device}" ct state new ${match} accept
+        '')
+        link.outbound}
           oifname "${device}" reject
         }
 
@@ -74,10 +99,12 @@
     '';
   inventory = name: link:
     pkgs.writeText "idr-mesh-publish-${link.hash}.json" (builtins.toJSON {
-      services.${name} = builtins.removeAttrs link ["hash" "ports"] // {firewall = firewall link;};
+      services.${name} = builtins.removeAttrs link ["hash" "ports" "outbound"] // {firewall = firewall link;};
     });
   # Connections to a published port of any host address go to its workload,
-  # keeping their source address. Workloads cannot connect to the host.
+  # keeping their source address. Connections that a workload may open to the
+  # internet leave with the host's address. Workloads cannot connect to the
+  # host.
   hostRules = ''
     chain prerouting {
       type nat hook prerouting priority dstnat; policy accept;
@@ -90,13 +117,30 @@
     publishing)}
     }
 
+    chain postrouting {
+      type nat hook postrouting priority srcnat; policy accept;
+      ${lib.concatStrings (lib.mapAttrsToList (_: link:
+      lib.optionalString (link.outbound != []) ''
+        ip6 saddr ${link.workloadAddress6} oifname != "idrp*" masquerade
+        ip saddr ${link.workloadAddress4} oifname != "idrp*" masquerade
+      '')
+    publishing)}
+    }
+
     chain input {
       type filter hook input priority filter; policy accept;
       iifname "idrp*" ct state new drop
     }
   '';
+  forwardRules = lib.concatStrings (lib.mapAttrsToList (_: link:
+    lib.concatMapStrings (match: ''
+      iifname "${link.interface}" ${match} accept
+    '')
+    link.outbound)
+  publishing);
   # Every workload requires its instance of the template, which finds no
-  # inventory when it publishes nothing. A change of any workload's ports only
+  # inventory when it neither publishes ports nor has internet access. A
+  # change of any workload's ports or internet access only
   # changes the template's reload trigger: the running instances reload and
   # apply their links in place, and the workloads keep running. The trigger
   # is never removed, as switching ignores a removed trigger.
@@ -105,7 +149,7 @@
   publishServices = {
     "idr-mesh-publish@" = {
       reloadTriggers = [inventories];
-      description = "Mesh published ports for %i";
+      description = "Mesh published ports and internet access for %i";
       bindsTo = ["idr-mesh-netns@%i.service"];
       after = ["idr-mesh-netns@%i.service"];
       partOf = ["idr-mesh-netns@%i.service"];
@@ -146,11 +190,15 @@ in {
       assertions = [
         {
           assertion = config.networking.nftables.enable && config.networking.firewall.filterForward;
-          message = "Publishing mesh ports needs the nftables firewall with networking.firewall.filterForward, which the base preset enables.";
+          message = "Publishing mesh ports and internet access need the nftables firewall with networking.firewall.filterForward, which the base preset enables.";
         }
         {
           assertion = lib.versionAtLeast config.boot.kernelPackages.kernel.version "6.17";
-          message = "Publishing mesh ports needs Linux 6.17 or later, for per-interface IPv6 forwarding.";
+          message = "Publishing mesh ports and internet access need Linux 6.17 or later, for per-interface IPv6 forwarding.";
+        }
+        {
+          assertion = lib.all (link: link.outbound == []) (lib.attrValues publishing) || cfg.internet.nameservers != [];
+          message = "Mesh internet access needs idr.mesh.internet.nameservers, which defaults to networking.nameservers.";
         }
         {
           assertion = disjoint published;
@@ -164,12 +212,14 @@ in {
 
       # Forward to the links without making the host an IPv6 router, which
       # would stop it from accepting router advertisements. The firewall only
-      # forwards the published connections.
+      # forwards the published connections and those that internet access
+      # allows.
       boot.kernel.sysctl = {
         "net.ipv4.ip_forward" = 1;
         "net.ipv6.conf.all.force_forwarding" = 1;
         "net.ipv6.conf.default.force_forwarding" = 1;
       };
+      networking.firewall.extraForwardRules = forwardRules;
       networking.nftables.tables.idr_mesh_publish = {
         family = "inet";
         content = hostRules;
