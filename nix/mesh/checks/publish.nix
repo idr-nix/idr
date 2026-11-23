@@ -63,17 +63,16 @@ top: {lib, ...}: {
               serviceConfig.DynamicUser = true;
             };
           };
-          # Changes front's ports and gives app its first one.
+          # Changes front's ports to a range and gives app its first one.
           specialisation = lib.mkIf (name == "alpha") {
             ports.configuration.system.services = {
               front.idr.mesh.publish = lib.mkForce [
                 {
                   proto = "tcp";
-                  port = 8443;
-                }
-                {
-                  proto = "tcp";
-                  port = 8444;
+                  port = {
+                    from = 8443;
+                    to = 8444;
+                  };
                 }
               ];
               app.idr.mesh.publish = [
@@ -178,7 +177,8 @@ top: {lib, ...}: {
               alpha.succeed("/run/booted-system/specialisation/ports/bin/switch-to-configuration test", timeout=180)
               assert invocations() == before
               for address in ["2001:db8:1::1", "192.168.1.1"]:
-                  beta.wait_until_succeeds(echo("TCP", address, 8444), timeout=30)
+                  for port in [8443, 8444]:
+                      beta.wait_until_succeeds(echo("TCP", address, port), timeout=30)
                   beta.fail(echo("UDP", address))
                   assert beta.wait_until_succeeds(http(address), timeout=30).strip() == "alpha"
 

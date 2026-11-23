@@ -30,7 +30,19 @@
       workloadMac = "02:00:00:00:00:02";
     })
     (lib.filterAttrs (_: service: service.publish != []) meshServices);
-  elements = link: lib.concatMapStringsSep ", " (entry: "${entry.proto} . ${toString entry.port}") link.ports;
+  range = port:
+    if lib.isInt port
+    then {
+      from = port;
+      to = port;
+    }
+    else port;
+  # A port, or a range of ports, in nftables.
+  ports = port:
+    if lib.isInt port
+    then toString port
+    else "${toString port.from}-${toString port.to}";
+  elements = link: lib.concatMapStringsSep ", " (entry: "${entry.proto} . ${ports entry.port}") link.ports;
   # The workload accepts new connections only to its published ports, and
   # sends only replies through the link, although its default route leads
   # there. Other connections fail at once instead of timing out.
@@ -71,8 +83,8 @@
       type nat hook prerouting priority dstnat; policy accept;
       ${lib.concatStrings (lib.mapAttrsToList (_: link:
       lib.concatMapStrings (entry: ''
-        iifname != "idrp*" fib daddr type local meta nfproto ipv6 ${entry.proto} dport ${toString entry.port} dnat ip6 to ${link.workloadAddress6}
-        iifname != "idrp*" fib daddr type local meta nfproto ipv4 ${entry.proto} dport ${toString entry.port} dnat ip to ${link.workloadAddress4}
+        iifname != "idrp*" fib daddr type local meta nfproto ipv6 ${entry.proto} dport ${ports entry.port} dnat ip6 to ${link.workloadAddress6}
+        iifname != "idrp*" fib daddr type local meta nfproto ipv4 ${entry.proto} dport ${ports entry.port} dnat ip to ${link.workloadAddress4}
       '')
       link.ports)
     publishing)}
@@ -114,6 +126,11 @@
   };
   uniqueField = field: lib.allUnique (lib.mapAttrsToList (_: link: link.${field}) publishing);
   published = lib.concatMap (link: link.ports) (lib.attrValues publishing);
+  overlap = a: b: a.proto == b.proto && (range a.port).from <= (range b.port).to && (range b.port).from <= (range a.port).to;
+  disjoint = entries:
+    entries
+    == []
+    || !(lib.any (overlap (lib.head entries)) (lib.tail entries)) && disjoint (lib.tail entries);
 in {
   config = lib.mkIf cfg.enable (lib.mkMerge [
     {
@@ -136,8 +153,8 @@ in {
           message = "Publishing mesh ports needs Linux 6.17 or later, for per-interface IPv6 forwarding.";
         }
         {
-          assertion = lib.allUnique published;
-          message = "Each published mesh port and protocol must belong to one workload of the machine.";
+          assertion = disjoint published;
+          message = "Published mesh ports and port ranges must not overlap: each port and protocol belongs to one workload of the machine.";
         }
         {
           assertion = uniqueField "interface" && uniqueField "hostAddress6" && uniqueField "hostAddress4";

@@ -36,8 +36,23 @@ in {
             description = "Transport protocol of the published port.";
           };
           port = mkOption {
-            type = types.ints.between 1 65535;
-            description = "Port on the host's addresses, forwarded to the same port of the workload.";
+            type = types.either (types.ints.between 1 65535) (types.submodule {
+              options = {
+                from = mkOption {
+                  type = types.ints.between 1 65535;
+                  description = "First port of the range.";
+                };
+                to = mkOption {
+                  type = types.ints.between 1 65535;
+                  description = "Last port of the range.";
+                };
+              };
+            });
+            example = {
+              from = 50000;
+              to = 60000;
+            };
+            description = "Port, or range of ports, on the host's addresses, forwarded to the same port of the workload.";
           };
         };
       });
@@ -56,6 +71,10 @@ in {
     {
       assertion = lib.all (id: builtins.match serviceIdPattern id != null) (lib.attrNames cfg.peers);
       message = "idr.mesh.peers keys must be twelve lowercase hexadecimal digits.";
+    }
+    {
+      assertion = lib.all (entry: lib.isInt entry.port || entry.port.from <= entry.port.to) cfg.publish;
+      message = "idr.mesh.publish port ranges must not end before they start.";
     }
   ];
 

@@ -71,6 +71,7 @@ Forward ports of the host's addresses to a workload:
 idr.mesh.publish = [
   {proto = "tcp"; port = 443;}
   {proto = "udp"; port = 443;}
+  {proto = "udp"; port = {from = 50000; to = 60000;};}
 ];
 ```
 
@@ -78,7 +79,8 @@ Connections from other machines keep the client's address. The workload still
 cannot open connections other than to its peers. Changing the ports does not
 restart the workload. Publishing needs the nftables firewall with
 `networking.firewall.filterForward`, both on in the base preset, and Linux 6.17
-or later. Each port and protocol belongs to one workload per machine.
+or later. Each port and protocol belongs to one workload per machine, so ports
+and ranges must not overlap.
 
 If the link addresses overlap a local network, change
 `idr.mesh.published.ipv4Prefix` (default `10.201`, a /16) or
