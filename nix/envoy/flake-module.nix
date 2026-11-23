@@ -1,9 +1,12 @@
-_: {
-  perSystem = {
-    lib,
-    pkgs,
-    ...
-  }: {
+top: {lib, ...}: {
+  imports = top.idr-lib.importApplyAll top [./checks/ingress.nix];
+
+  flake.modules.service = {
+    envoy = lib.modules.importApply ./service-module.nix top;
+    ingress-backend = lib.modules.importApply ./ingress-backend.nix top;
+  };
+
+  perSystem = {pkgs, ...}: {
     idr.packages.envoy = {
       package = pkgs.callPackage ./package.nix {};
       update = pkgs.writeShellScript "update-envoy" ''

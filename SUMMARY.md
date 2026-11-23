@@ -31,6 +31,7 @@
 - [etcd](./nix/etcd/README.md)
 - [Service mesh](./nix/mesh/README.md)
   - [Mesh operations](./docs/mesh-operations.md)
+- [Envoy](./nix/envoy/README.md)
 
 # Module options
 - [nixos](docs/generated/nixos-options.md)

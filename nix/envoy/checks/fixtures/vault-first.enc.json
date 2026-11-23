@@ -1,0 +1,18 @@
+{
+	"tls-vault_cert_pem": "ENC[AES256_GCM,data:a2wkM9uLQlyvAcIeXTGZb4GY5c5N9T7ehIn1538ejMSllXpDg+k9yzfMvWhqvvMpeb+pcpO3Tp7rK24paVCjG5tGO/4DGZwFXTdCg6DP9uLAKZ35Sv3t1EV3Qw8I61/uT4orxcG9uupyutOZnjiNcQM1qxKZCqMn/jmyKaNiTpVZytcvEWRzF0Jf3cyYz3bDKAqXWXXfS8PUB/g/GdB26j4an4Zu4rpAbQUoHVCbbO8JLEu1wWWRmvMXbCKibR9O8qea+aOmnvusbmav93NXs9bsmymW75KHnCvskuqu29PdUGOP6BTmmp/ssZkReAPkvx+VRU0sTHQmTUPzCPbKTVQK+96e/Vo36y79o2+oMDjdCCj91IfntzI9epvoD0WMoSVzPXC+0Cl1iAnqjCOpuwMCl8OXU5LUTfO6W0lb8HsOw8YXnFpzu51UXPSvFmq0sYee9+MT+ajbvJResbpuX5qMjkpfLUSwbdCno6JaxNTRVY3Ysre5bYVnuQ/eLeebYiAMHBZBZudpkPL3PiFfIoI8D8i2msxbkz9F+m48/iTWqYnrh5dm8U77ogzVhDe4SyOooEyv/idTHvR7Q6UMczbkhGErmnqfyXpynRqjGVgUqioUk2Q8aZPYSp+LYC6AMZSCJpUrZNHEA+JgGQLZKksH5hiMGq/5485vsMTUhvZr2fVCuODgkMoc8iYg4RO4g8Bi2MnXQ2OQZ8sTjVMjckTPYSoF0KW9/e4r5LGPiGEuLIXAi0WA2tSKywS7PqtI43vNhE6KQg707BzrP1vUzkq3bvktAcU2ahVeHgSr9YCV0R49kneeH2q9PJy9xyUXPCCPhA7yRK/a14CrR7TVNdVIxteC8OJDP8ReAaqtbsePByeKEeUTEET9GprWAf3HJBr+CKrRkFy0th6qoJvK3A2jP/7kbb/7akBZUdWWGQivQvACAMen4LmK5MyUh31xK6FO6iw7A2COof9NRi0vKSARJjp2RJjxO4gIDRJx6Zzvf2PBTKd3IQEa+CB0ib0iP0LWzOoPI7N64Y4Y7QiBpX2JWn5quGueK5J7LWNnlCITjuHiBX4zNgqB5xrUv33KnZBDyAy3YSgoqQf542ftFbwc+OjHU1IRhGiyFkEnd9abKgsX,iv:3qFnlxDNSOCwCZgZHxYTVoN5mu43XVkFVPRVd13xWok=,tag:wdqxs+SKPBpXgkdSVbNNLA==,type:str]",
+	"tls-vault_domains_unencrypted": [
+		"vault.example.test"
+	],
+	"sops": {
+		"age": [
+			{
+				"enc": "-----BEGIN AGE ENCRYPTED FILE-----\nYWdlLWVuY3J5cHRpb24ub3JnL3YxCi0+IFgyNTUxOSBUNE5lOUFhOTI0c3dPNCs4\nV2FHcjc1RzVQZlQzbVZkMDhMRm1CSVY2Y0NRCkZPSlJTK1AySi8xT1ErcVdCV0Rv\nZjRMQzNKNlAxT1U2c0RxVHBYVXdBUm8KLS0tIDZmK2kwTGp5MVBudFFjaTFkSjVp\nQk5CeGl0dkF4SHJhbG1oOUJLZEZocDgKPFsOZbK1xyKHBfeLlk+6ibDdhw3ynvq3\nC0hviVVZ5bs7Fvvbbaq2ph/bZZA3Mm1FTbZxX5LkKx89epxWzQf/og==\n-----END AGE ENCRYPTED FILE-----\n",
+				"recipient": "age14d3809cnn99cdr77jfqxwgnf93s9fl7ukg9dgswrwhgq5ntmya4qc9gj0w"
+			}
+		],
+		"lastmodified": "2026-11-23T08:02:28Z",
+		"mac": "ENC[AES256_GCM,data:V4T9tVmjWqC26yM2y8Dx9eFygYIOEnLAiO/2QQ5qUJuz1uCnTfHkmMsLfaRLYABwJhVqp+yzEQReMNBM/8Bp4cynDWgambGxxCO0cNPvPRBKV8efJUbbUX1hSkFshfuTDko1FFZFAYYGjQb74APtwdjRKc/Jy2CqATAoIUfi5eM=,iv:GZU9ujRqEhDaZvO6BXPyTVRpSR3vtL/b/I0HMlpynYM=,tag:itEuz5mwLuafg6/im1QmAA==,type:str]",
+		"unencrypted_suffix": "_unencrypted",
+		"version": "3.13.3"
+	}
+}

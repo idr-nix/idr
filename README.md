@@ -120,6 +120,7 @@ and run `nix run "git+https://github.com/idr-nix/idr" -- idr-mk-project .`
 - [etcd](./nix/etcd/README.md)
 - [Service mesh](./nix/mesh/README.md)
   - [Mesh operations](./docs/mesh-operations.md)
+- [Envoy](./nix/envoy/README.md)
 
 ## License
 
