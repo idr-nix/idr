@@ -19,20 +19,19 @@ the systems in its `meta.platforms`.
 From the development shell, run:
 
 ```sh
-idr-update-packages
+idr-update-packages          # all packages
+idr-update-packages my-tool  # only the named ones
 ```
 
 The command runs each package's update script once, from the project root, as
-declared for the development shell's system. It then builds the package if it
-is available on that system. Packages are updated in parallel, as many at once
-as the machine has CPU threads; `--threads` (`-t`) sets another limit. Each
-package's output is printed when it finishes. Pass package names to update only
-those. A failed package is reported at the end, after the others are updated.
-Changes stay in the working tree for review.
+declared for the development shell's system, then builds the package if that
+system supports it. Packages update in parallel, one per CPU thread; `--threads`
+(`-t`) sets another limit. Failed packages are reported at the end, after the
+others are updated. Changes stay in the working tree for review.
 
 The default update script runs `nix-update --flake <name>`, which updates the
-version and the hashes of the package for the current system. When sources
-differ between systems, the script must update every system's hash. For
+version and the hashes for the current system. When sources differ between
+systems, set `update` to a script that updates every system's hash. For
 example, expose each system's source as `src-<system>` in `passthru` and pass
 them all to nix-update:
 

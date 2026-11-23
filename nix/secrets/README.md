@@ -21,15 +21,13 @@ For example, to read `api_token` from an adjacent `secrets.enc.json`:
 ```nix
 idr.secrets-source.api-token = {
   sopsFile = ./secrets.enc.json;
-  format = "json";
   key = "api_token";
 };
 ```
 
-The SOPS CLI detects the format from the filename, but sops-nix uses
-`sops.defaultSopsFormat`, which defaults to YAML. Set `format` on the source when
-it differs. If the key in the file matches the source name, you can omit `key`;
-use `key = ""` to read the whole file.
+`key` defaults to the source name; `key = ""` reads the whole file. Keys of
+YAML and JSON files need no `format`. Set it for binary, dotenv and ini files,
+and to `"json"` to get a whole JSON file as JSON.
 
 For a SOPS source, `path` changes the runtime file location, and `restartUnits`
 and `reloadUnits` add systemd units to notify when the secret changes.

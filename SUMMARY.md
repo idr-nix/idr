@@ -21,6 +21,7 @@
   - [Service environments](./nix/systemd/README.md)
 - [Service ports](./docs/ports.md)
 - [Generated project files](./docs/generated-files.md)
+- [Packages (idr-update-packages)](./docs/packages.md)
 - [Review reminders](./docs/reminders.md)
 - [Server presets and containers](./nix/preset/README.md)
 - [Documentation tools](./docs/documentation.md)
