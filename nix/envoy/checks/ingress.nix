@@ -150,6 +150,10 @@ top: {lib, ...}: {
           # filter chain per certificate, the route table, and the module that
           # Vaultwarden's service generated.
           alpha = {nodes, ...}: {
+            # The ingress's session ticket keys.
+            systemd.tmpfiles.rules = [
+              "C /run/mesh-test-secrets/ticket-keys 0440 root root - ${pkgs.runCommand "ticket-keys" {} "head -c 80 /dev/urandom > $out"}"
+            ];
             system.services.ingress = {
               config,
               lib,
@@ -226,7 +230,7 @@ top: {lib, ...}: {
                         inherit (secret) name;
                         transport_socket = {
                           name = "envoy.transport_sockets.tls";
-                          typed_config = typed "transport_sockets.tls.v3.DownstreamTlsContext" // tls secret;
+                          typed_config = typed "transport_sockets.tls.v3.DownstreamTlsContext" // tls secret // {session_ticket_keys_sds_secret_config.name = "ticket-keys";};
                         };
                         filters = [
                           (manager {
@@ -265,6 +269,14 @@ top: {lib, ...}: {
                         ];
                       })
                       certificates;
+                  }
+                ];
+                # Envoy reads the session ticket keys only when this resource
+                # changes.
+                secrets = [
+                  {
+                    name = "ticket-keys";
+                    session_ticket_keys.keys = [(meshFixture.secret "ticket-keys")];
                   }
                 ];
                 # Applications add virtual hosts. Alt-Svc tells clients that
@@ -468,8 +480,11 @@ top: {lib, ...}: {
               hosts = inlined["static_resources"]["listeners"][0]["filter_chains"][0]["filters"][0]["typed_config"]["route_config"]["virtual_hosts"]
               assert [host["name"] for host in hosts] == ["${vaultwardenId}-vaultwarden"], hosts
               assert "PRIVATE KEY" not in alpha.succeed(f"cat {xds}/secrets/*.json /etc/system-services/ingress/*.json")
+              assert set(alpha.succeed("stat --format=%a /run/idr-envoy-ingress/secrets/*").split()) == {"400"}
               # The certificate and its key are one file.
-              assert alpha.succeed("stat --format=%a /run/idr-envoy-ingress/secrets/*").split() == ["400"]
+              certificate = json.loads(alpha.succeed(f"cat $(grep -l tls_certificate {xds}/secrets/*.json)"))
+              tls = certificate["resources"][0]["tls_certificate"]
+              assert tls["certificate_chain"] == tls["private_key"], tls
 
           with subtest("published HTTPS and HTTP/3 reach Vaultwarden over the mesh with the client's address"):
               for address in ["2001:db8:1::1", "192.168.1.1"]:
@@ -537,6 +552,24 @@ top: {lib, ...}: {
               request_on_connection()
               responses_on_connection(3)
               assert "connection: close" not in beta.succeed("cat /tmp/connection.out").lower()
+              assert invocation() == before
+              assert envoys() == processes
+
+          with subtest("a new session ticket key applies to the running Envoy"):
+              resume = (
+                "openssl s_client -connect '[2001:db8:1::1]:443' -servername ${domain} -tls1_2 -sess_in /tmp/session"
+                + " < /dev/null 2> /dev/null"
+            )
+              # The keys' file is named after their content, without the old one.
+              versioned = "ls /run/idr-envoy-ingress/secrets | grep -E '^secret-[0-9a-f]{16}-[0-9a-f]{16}$'"
+              old = alpha.succeed(versioned).split()
+              assert len(old) == 1, old
+              beta.succeed(resume.replace("-sess_in", "-sess_out") + " > /dev/null")
+              assert "Reused" in beta.succeed(resume), "the ticket was not accepted"
+              alpha.succeed("head -c 80 /dev/urandom > /run/mesh-test-secrets/ticket-keys", "systemctl reload ingress.service")
+              beta.wait_until_succeeds(resume + " | grep -q '^New'", timeout=30)
+              new = alpha.succeed(versioned).split()
+              assert len(new) == 1 and new != old, (old, new)
               assert invocation() == before
               assert envoys() == processes
 

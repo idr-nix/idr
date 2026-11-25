@@ -130,10 +130,11 @@ top: {
     else if lib.isList value
     then lib.concatMap collect value
     else [];
-  # Secrets that only a new Envoy process reads again. Envoy 1.40 watches the
-  # files of certificates, keys, CAs, CRLs and generic secrets in
-  # resources.secrets; it reads other fields there, such as session ticket keys
-  # or an OCSP staple, and secrets elsewhere, such as in a listener, once.
+  # Envoy 1.40 watches the files of certificates, keys, CAs, CRLs and generic
+  # secrets in resources.secrets. It reads other fields there, such as session
+  # ticket keys or an OCSP staple, and secrets elsewhere, such as in a listener,
+  # only when their resource changes, and those in the bootstrap only in a new
+  # process.
   unwatched = secret:
     secret
     // lib.optionalAttrs (secret ? tls_certificate) {
@@ -145,10 +146,20 @@ top: {
     // lib.optionalAttrs (secret ? generic_secret) {
       generic_secret = builtins.removeAttrs secret.generic_secret ["secret" "secrets"];
     };
-  staticReferences = lib.unique (collect bootstrap
-    ++ lib.concatMap collect (resources.listeners ++ resources.clusters ++ resources.routes)
-    ++ lib.concatMap (secret: collect (unwatched secret)) resources.secrets);
+  staticReferences = lib.unique (collect bootstrap);
+  # Their files take the name of their content, so that the resources that
+  # refer to them change with them.
+  versionedReferences = lib.subtractLists staticReferences (lib.unique (
+    lib.concatMap collect (resources.listeners ++ resources.clusters ++ resources.routes)
+    ++ lib.concatMap (secret: collect (unwatched secret)) resources.secrets
+  ));
   references = lib.unique (staticReferences ++ collect resources);
+  kind = secret:
+    if lib.elem secret staticReferences
+    then "static"
+    else if lib.elem secret versionedReferences
+    then "versioned"
+    else "dynamic";
   hashed = text: builtins.substring 0 16 (builtins.hashString "sha256" text);
   credential = secret: "secret-${hashed secret.path}";
 
@@ -247,12 +258,7 @@ top: {
           });
       command = lib.concatLines ([(lib.getExe cfg.package)] ++ cfg.args);
       secrets =
-        lib.concatMapStrings (secret: "${secret.path} ${credential secret} ${
-          if lib.elem secret staticReferences
-          then "static"
-          else "dynamic"
-        }\n")
-        references;
+        lib.concatMapStrings (secret: "${secret.path} ${credential secret} ${kind secret}\n") references;
       "xds/lds.json" = response "envoy.config.listener.v3.Listener" resources.listeners;
       "xds/cds.json" = response "envoy.config.cluster.v3.Cluster" resources.clusters;
     }

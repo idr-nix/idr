@@ -3,7 +3,8 @@
 # DIRECTORY holds envoy.json, the bootstrap; validate.json, the same
 # configuration with every resource inlined; command, Envoy's executable and
 # arguments, one per line; secrets, a line of "<source path> <name> <static or
-# dynamic>" for each secret; and xds, the dynamic resources, one file each.
+# dynamic or versioned>" for each secret; and xds, the dynamic resources, one
+# file each.
 #
 # In $RUNTIME_DIRECTORY, owned by Envoy's user, staged holds the secrets to
 # validate; envoy.json, command, secrets and xds what Envoy reads, once valid;
@@ -45,6 +46,35 @@ def replace [source: path, target: path] {
   let temporary = $target | path dirname | path join .new
   rm --force $temporary
   cp $source $temporary
+  mv --force $temporary $target
+}
+
+# Envoy reads a versioned secret again only when a resource that names it
+# changes, so its file is also installed under the name of its content. The
+# name is salted, so that it reveals nothing about a guessable secret.
+def versioned [staged: path] {
+  let file = $staged | path basename
+  let salt = $env.RUNTIME_DIRECTORY | path join salt
+  if not ($salt | path exists) {
+    rm --force $"($salt).new"
+    random binary 32 | save $"($salt).new"
+    mv --force $"($salt).new" $salt
+  }
+  let digest = [(open --raw $salt | into binary) (open --raw $staged | into binary)] | bytes collect | hash sha256 | str substring 0..15
+  {from: $file, to: $"($file)-($digest)"}
+}
+
+# Installs a resource with the versioned secrets' names, only when it changed.
+def install-resource [source: path, target: path, secrets: path, names: list] {
+  let content = $names | reduce --fold (open --raw $source | decode utf-8) {|name, text|
+    $text | str replace --all $"\"($secrets | path join $name.from)\"" $"\"($secrets | path join $name.to)\""
+  }
+  if ($target | path exists) and ((open --raw $target | decode utf-8) == $content) {
+    return
+  }
+  let temporary = $target | path dirname | path join .new
+  rm --force $temporary
+  $content | save $temporary
   mv --force $temporary $target
 }
 
@@ -156,16 +186,21 @@ def "main install" [directory: path] {
   let secrets = $runtime | path join secrets
   let xds = $runtime | path join xds
   mkdir $secrets ($xds | path join secrets) ($xds | path join routes)
+  let kinds = listed $directory | where kind == versioned | get name
+  let names = files $staged | where {|file| ($file | path basename) in $kinds } | each {|file| versioned $file }
   for file in (files $staged) {
     replace $file ($secrets | path join ($file | path basename))
   }
+  for name in $names {
+    replace ($staged | path join $name.from) ($secrets | path join $name.to)
+  }
   for kind in [secrets routes] {
     for file in (files ($directory | path join xds $kind)) {
-      replace $file ($xds | path join $kind ($file | path basename))
+      install-resource $file ($xds | path join $kind ($file | path basename)) $secrets $names
     }
   }
   for resource in [cds.json lds.json] {
-    replace ($directory | path join xds $resource) ($xds | path join $resource)
+    install-resource ($directory | path join xds $resource) ($xds | path join $resource) $secrets $names
   }
   for kind in [secrets routes] {
     for file in (files ($xds | path join $kind)) {
@@ -174,8 +209,10 @@ def "main install" [directory: path] {
       }
     }
   }
+  let current = $names | get to
   for file in (files $secrets) {
-    if not ($staged | path join ($file | path basename) | path exists) {
+    let name = $file | path basename
+    if not ($staged | path join $name | path exists) and $name not-in $current {
       rm --force $file
     }
   }

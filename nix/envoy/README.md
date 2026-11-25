@@ -300,18 +300,15 @@ as the ingress does with `stg-tls` above.
 
 A deployment never stops Envoy:
 
-- Changes to `resources` apply to the running Envoy. Route tables and
-  certificates change without touching connections. A changed cluster drains
-  only its own connections, and a listener whose filter chains changed only
-  those chains; other listener changes drain the whole listener. A renewed
-  certificate, key, CA, CRL or generic secret in `resources.secrets` applies
-  the same way.
+- Changes to `resources`, and to the secrets they use, apply to the running
+  Envoy. Route tables and secrets change without touching connections. A
+  changed cluster drains only its own connections, and a listener whose filter
+  chains changed only those chains; other listener changes drain the whole
+  listener. A secret used in a cluster or listener changes it the same way.
 - Other changes start a new Envoy that takes over the listeners: changes to the
-  rest of `idr.envoy`, including `package` and `args`, and to other secrets,
-  such as those used elsewhere, TLS session ticket keys or an OCSP staple. The
-  previous Envoy keeps its open
-  connections for up to 15 minutes, then closes those that remain. Shorten that
-  with Envoy's options:
+  rest of `idr.envoy`, including `package` and `args`, and to the secrets it
+  uses. The previous Envoy keeps its open connections for up to 15 minutes, then
+  closes those that remain. Shorten that with Envoy's options:
 
 ```nix
 idr.envoy.args = ["--drain-time-s" "60" "--parent-shutdown-time-s" "90"];
