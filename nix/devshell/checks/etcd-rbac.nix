@@ -12,7 +12,11 @@ top: {lib, ...}: {
     checks.etcd-rbac = pkgs.testers.runNixOSTest {
       imports = [(lib.modules.importApply ./etcd-auth-fixture.nix {inherit top;})];
       name = "etcd-rbac";
-      nodes.alpha = {config, ...}: let
+      nodes.alpha = {
+        config,
+        pkgs,
+        ...
+      }: let
         updatedRBAC = {
           endpoints = map (name: {domain = "etcd-${name}.example.test";}) ["alpha" "beta" "gamma"];
           caCert = ./fixtures/etcd/ca.pem;
@@ -32,6 +36,12 @@ top: {lib, ...}: {
       in {
         # Generation switching registers its closure in the guest store.
         virtualisation.writableStore = true;
+        # A new root password, as a secret reference.
+        systemd.tmpfiles.rules = [
+          "d /run/etcd-rbac-test 0750 root root -"
+          "C /run/etcd-rbac-test/root-password 0440 root root - ${pkgs.writeText "root-password" "public-test-root-rotated"}"
+        ];
+        systemd.targets.etcd-rbac-test-secrets = {};
         idr.etcd.clusters.main.rbac = {
           roles.monitor.permissions = [{target = "/status";}];
           users.monitor = {
@@ -43,6 +53,18 @@ top: {lib, ...}: {
           permissions.configuration.idr.etcd.clusters.main.rbac = lib.mkForce updatedRBAC;
           password.configuration = {
             idr.etcd.clusters.main.rbac = lib.mkForce updatedRBAC;
+            idr.secrets-source.application-password.sopsFile = lib.mkForce ./fixtures/etcd/updated.enc.json;
+          };
+          root.configuration = {
+            idr.etcd.clusters.main.rbac = lib.mkForce (updatedRBAC
+              // {
+                rootPassword = {
+                  path = "/run/etcd-rbac-test/root-password";
+                  group = "root";
+                  reloadTarget = "etcd-rbac-test-secrets.target";
+                  restartTarget = "etcd-rbac-test-secrets.target";
+                };
+              });
             idr.secrets-source.application-password.sopsFile = lib.mkForce ./fixtures/etcd/updated.enc.json;
           };
         };
@@ -117,6 +139,14 @@ top: {lib, ...}: {
             assert alpha.succeed(f"systemctl show {controller} --property=FragmentPath --value").strip() == old_unit
             assert alpha.succeed(f"systemctl show {controller} --property=InvocationID --value").strip() != old_invocation
             assert json.loads(alpha.succeed(admin + "user get root --write-out=json"))["roles"] == ["root"]
+
+        with subtest("change the root password from the one that last worked"):
+            alpha.succeed("/run/booted-system/specialisation/root/bin/switch-to-configuration test", timeout=180)
+            rotated = "etcdctl --user=root:public-test-root-rotated "
+            alpha.wait_until_succeeds(rotated + "user list")
+            alpha.fail(admin + "user list")
+            alpha.wait_for_unit(controller)
+            assert alpha.succeed(new_application + "get /application/message --print-value-only").strip() == "initial"
 
         with subtest("a renewed member certificate applies without restarting etcd"):
             member = "idr-etcd-main@gamma.service"

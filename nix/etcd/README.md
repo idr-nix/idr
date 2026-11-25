@@ -97,8 +97,11 @@ A user's `password` can also be a
 [secret source](../secrets/README.md#secret-references-or-sources), such as a
 SOPS key in another machine's password file.
 
-After bootstrap, `rootPassword` must match the existing administrator password.
-Enable RBAC before allowing application clients to connect.
+A new `rootPassword` changes the root password: the controller logs in with the
+one that last worked, which it remembers until the machine reboots. After a
+reboot straight into a new root password, set it once with
+`etcdctl user passwd root`. Enable RBAC before allowing application clients to
+connect.
 
 A permission's `target` can be an exact key, a string with `prefix = true`, or
 `{ from = "/first"; to = "/last"; }` for an inclusive start and exclusive end.

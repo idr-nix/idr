@@ -61,6 +61,10 @@ in {
           RestartSec = "5s";
           TimeoutStartSec = "300s";
           DynamicUser = true;
+          # The root password that last worked, to change it from when it changes.
+          RuntimeDirectory = name;
+          RuntimeDirectoryMode = "0700";
+          RuntimeDirectoryPreserve = true;
           LoadCredential =
             ["root-password:${rbac.rootPassword.path}"]
             ++ lib.mapAttrsToList (name: user: "${userCredential name}:${(password clusterName name user).path}") rbac.users;

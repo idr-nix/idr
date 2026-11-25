@@ -26,6 +26,26 @@ def set-password [operation: string, user: string, value: string] {
     | complete | checked $"user ($operation) ($user)" | ignore
 }
 
+# The root password that last worked, kept until the machine reboots.
+def remembered [] {
+  $env.RUNTIME_DIRECTORY | path join root-password
+}
+
+# Changes the root password from the one that last worked when etcd refuses the
+# configured one.
+def rotate-root [root_password: string] {
+  let check = (^etcdctl user get root | complete)
+  if $check.exit_code == 0 or not ($check.stderr =~ 'authentication failed, invalid user ID or password') {
+    return
+  }
+  if not (remembered | path exists) {
+    error make {msg: "etcd refuses the root password, and no other worked since boot: if it changed, set it once with etcdctl user passwd root"}
+  }
+  with-env {ETCDCTL_PASSWORD: (open --raw (remembered) | decode utf-8)} {
+    set-password passwd root $root_password
+  }
+}
+
 # Match etcd's bytewise prefix boundary without decoding that boundary as Unicode.
 def prefix-end [key: binary] {
   mut index = ($key | bytes length) - 1
@@ -101,12 +121,16 @@ def main [settings: path] {
 
   $env.ETCDCTL_USER = "root"
   $env.ETCDCTL_PASSWORD = $root_password
+  rotate-root $root_password
   # The client tolerates disabled authentication; enabled clusters require root here.
   let status = (ectl auth status | from json)
   if not ($status.enabled? | default false) {
     let users = (ectl user list | from json | get users? | default [])
     if "root" not-in $users {
       set-password add root $root_password
+    } else {
+      # An earlier bootstrap may have added root with another password.
+      set-password passwd root $root_password
     }
     let roles = (ectl role list | from json | get roles? | default [])
     if "root" not-in $roles {
@@ -118,6 +142,11 @@ def main [settings: path] {
     }
     ectl auth enable | ignore
   }
+  # Remember the root password once etcd has accepted it.
+  ectl user get root | ignore
+  let file = remembered
+  $root_password | save --force $"($file).new"
+  mv --force $"($file).new" $file
 
   let existing_users = (ectl user list | from json | get users? | default [])
   let existing_roles = (ectl role list | from json | get roles? | default [])

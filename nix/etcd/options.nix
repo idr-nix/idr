@@ -48,7 +48,7 @@ top: {
         inherit package endpoints caCert;
         rootPassword = mkOption {
           type = secret;
-          description = "Existing root password, also used to bootstrap authentication in a new cluster.";
+          description = "Root password, also used to bootstrap authentication in a new cluster.";
         };
         roles = mkOption {
           default = {};
