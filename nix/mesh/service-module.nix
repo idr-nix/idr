@@ -50,6 +50,12 @@ in {
       description = "The machine's `idr.mesh.etcd` cluster that this service registers in; `idr.mesh.defaultEtcd` when null.";
     };
 
+    ipv6Prefix = mkOption {
+      type = types.nullOr types.str;
+      readOnly = true;
+      description = "IPv6 /48 prefix of the cluster that this service registers in, which its machine sets. The service's instances have addresses in `<ipv6Prefix>:<id>::/96`.";
+    };
+
     peers = mkOption {
       type = types.attrsOf (types.submodule {
         options.etcd = mkOption {
@@ -62,7 +68,7 @@ in {
           type = types.listOf (types.strMatching serviceIdPattern);
           default = [];
           example = ["444444444444"];
-          description = "For a peer in another cluster: services that one of the two reaches through the other, which forwards the connections from its own address. Each is a peer of the forwarding service in its cluster. List the same services on both.";
+          description = "For a peer in another cluster: services that this service or the peer reaches through the other. Each must be a peer of the one that forwards, in its own cluster, and sees the connections as coming from it. List the same services on both.";
         };
         options.psk = mkOption {
           type = types.nullOr top.idr-lib.types.secretOrSource;

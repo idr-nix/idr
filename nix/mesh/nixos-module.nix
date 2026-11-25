@@ -52,6 +52,22 @@ top: {
     if lib.length found == 1
     then lib.head found
     else null;
+  # Gives each mesh service, sub-services too, the prefix of its cluster.
+  prefixModule = {
+    config,
+    options,
+    ...
+  }: {
+    options.services = mkOption {
+      type = types.attrsOf (types.submoduleWith {
+        class = "service";
+        modules = [prefixModule];
+      });
+    };
+    config = lib.optionalAttrs (options ? idr.mesh.ipv6Prefix) {
+      idr.mesh.ipv6Prefix = prefixOf (clusterOf config.idr.mesh);
+    };
+  };
   # Peers in the service's own cluster are reached over WireGuard, `peers`
   # here, and those in other clusters over links on this machine, `links`.
   meshServices = lib.mapAttrs (name: declared: let
@@ -109,6 +125,13 @@ in {
     (importApply ./psk.nix {inherit meshExe meshServices;})
     (importApply ./metrics.nix {inherit meshExe;})
   ];
+
+  options.system.services = mkOption {
+    type = types.attrsOf (types.submoduleWith {
+      class = "service";
+      modules = [prefixModule];
+    });
+  };
 
   options.idr.mesh = {
     enable = lib.mkEnableOption "the service WireGuard mesh";

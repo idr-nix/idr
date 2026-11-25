@@ -111,6 +111,10 @@ top: {lib, ...}: {
         def local_address(prefix, service_id):
             return prefix + ":" + ":".join(service_id[index:index + 4] for index in range(0, 12, 4)) + "::"
 
+        # Each service knows the prefix of its cluster.
+        assert "${config.nodes.alpha.system.services.app.idr.mesh.ipv6Prefix}" == mesh_prefix
+        assert "${config.nodes.alpha.system.services.gateway.idr.mesh.ipv6Prefix}" == other_prefix
+
         app_address = local_address(mesh_prefix, "222222222222")
         gateway_address = local_address(other_prefix, "666666666666")
 

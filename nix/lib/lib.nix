@@ -616,11 +616,11 @@ in
     /**
     Derive etcd users and roles for the mesh agents of some machines in one of
     their `idr.mesh.etcd` clusters, for `idr.etcd.clusters.<name>.rbac`. Each
-    machine with the mesh enabled and that cluster gets its own user and role
-    named after the cluster's `username`: read and write on the services it
-    declares in the cluster, and read on their peers. The user's password is
-    the cluster's `password` when that is a secret source:
-    RBAC machines of the same project become recipients of its SOPS file, and
+    machine that enables the mesh and declares that cluster gets its own user
+    and role named after the cluster's `username`: read and write on the
+    services it declares in the cluster, and read on their peers. The user's
+    password is the cluster's `password` when that is a secret source: RBAC
+    machines of the same project become recipients of its SOPS file, and
     those of other projects must be listed in its `recipientMachines`. When it
     is a secret reference, set the user's `password` on the RBAC machine
     yourself.

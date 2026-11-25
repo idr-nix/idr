@@ -32,7 +32,7 @@ On the RBAC machines, derive the etcd
 ```nix
 idr.etcd.clusters.main.rbac = lib.mkMerge [
   {...}
-  (inputs.idr.lib.meshRbac "main" self.nixosConfigurations)
+  (top.idr-lib.meshRbac "main" self.nixosConfigurations)
 ];
 ```
 
@@ -65,11 +65,26 @@ Use `333333333333.mesh` to reach the peer's instances. A workload uses at most
 4096 instances of each peer service; set `idr.mesh.peers.<id>.maxInstances` to
 change that.
 
-### Several etcd clusters
+### Names
 
-Each cluster in `idr.mesh.etcd` holds a mesh of its own, with its own
-`ipv6Prefix`. Clusters can share an etcd if each has its own user. With more
-than one cluster, choose the default:
+Resolve domain names to a peer's instances in this workload:
+
+```nix
+idr.mesh.peers."333333333333" = {
+  psk = {sopsFile = ./mesh-psk.enc.json; key = "psk";};
+  names = ["vault.example.com" "*.example.com"];
+};
+```
+
+A leading `*.` covers the names below a domain that no other name matches. A
+name can belong to only one peer. The names resolve to IPv6 addresses. Changing
+them does not restart the workload.
+
+### Several clusters
+
+Each cluster in `idr.mesh.etcd` holds a mesh of its own. Give each a different
+`ipv6Prefix`. Two of them can use the same etcd if each has its own user. With
+more than one cluster, choose the default:
 
 ```nix
 idr.mesh = {
@@ -87,27 +102,15 @@ idr.mesh = {
 ```
 
 Register a service in another cluster with `idr.mesh.etcd = "other";`. Moving a
-service to another cluster restarts its workload. Derive each cluster's users
-on its RBAC machines with `meshRbac "<cluster>"`.
+service to another cluster restarts its workload.
+
+Derive each cluster's users on its RBAC machines with `meshRbac "<cluster>"`.
 
 ### Links
 
 A service reaches a peer in another cluster on the same machine over a direct
 link. Declare the peer on both services, with the other's cluster and without a
-PSK:
-
-```nix
-# 222222222222, in main
-idr.mesh.peers."333333333333".etcd = "other";
-
-# 333333333333, in other
-idr.mesh.peers."222222222222".etcd = "main";
-```
-
-`333333333333.mesh` and the peer's `names` resolve to the peer's address on the
-link. Adding or removing a link does not restart the workloads.
-
-Reach the peer's own peers through it, at their `.mesh` names. List them on
+PSK. To also reach the peer's own peers through it, list them in `routes` on
 both services:
 
 ```nix
@@ -124,23 +127,10 @@ idr.mesh.peers."222222222222" = {
 };
 ```
 
-`444444444444` sees the connections as coming from `333333333333`. Routes need
-Linux 6.17 or later.
-
-### Names
-
-Resolve domain names to a peer's instances in this workload:
-
-```nix
-idr.mesh.peers."333333333333" = {
-  psk = {sopsFile = ./mesh-psk.enc.json; key = "psk";};
-  names = ["vault.example.com" "*.example.com"];
-};
-```
-
-A leading `*.` covers the names below a domain that no other name matches. The
-names resolve to IPv6 addresses, and each leads to one peer. Changing them does
-not restart the workload.
+`333333333333.mesh` and the peer's `names` resolve to the peer's address on the
+link, and `444444444444.mesh` is reached through it. `444444444444` sees the
+connections as coming from `333333333333`. Adding or removing a link does not
+restart the workloads. Routes need Linux 6.17 or later.
 
 ### Published ports
 
