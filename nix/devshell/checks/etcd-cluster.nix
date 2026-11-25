@@ -44,7 +44,9 @@ top: {lib, ...}: {
             }
           ];
         };
-      testScript = ''
+      testScript = {nodes, ...}: let
+        psk = machine: nodes.${machine}.idr.secrets.alpha-beta-psk;
+      in ''
         import json
         import urllib.parse
         from concurrent.futures import ThreadPoolExecutor
@@ -205,6 +207,22 @@ top: {lib, ...}: {
                     f"ETCDCTL_ENDPOINTS=https://etcd-{name}.example.test:2379 etcdctl "
                     "get /application/replacement --print-value-only"
                 ).strip() == "after-replacement"
+
+        with subtest("a new private network PSK applies without restarting networkd"):
+            networkd = {
+                name: machine.succeed("systemctl show systemd-networkd --property=InvocationID --value")
+                for name, machine in members.items()
+            }
+            key = alpha.succeed("wg genpsk").strip()
+            for name, machine in [("alpha", alpha), ("beta", beta)]:
+                path = {"alpha": "${(psk "alpha").path}", "beta": "${(psk "beta").path}"}[name]
+                target = {"alpha": "${(psk "alpha").restartTarget}", "beta": "${(psk "beta").restartTarget}"}[name]
+                machine.succeed(f"printf %s {key} > \"$(readlink -f {path})\"", f"systemctl restart {target}")
+            for machine in [alpha, beta]:
+                machine.wait_until_succeeds(f"wg show idr-etcd-wg preshared-keys | grep -q {key}", timeout=30)
+            for name, machine in members.items():
+                assert machine.succeed("systemctl show systemd-networkd --property=InvocationID --value") == networkd[name]
+            alpha.wait_until_succeeds("etcdctl endpoint health --cluster")
       '';
     };
   };

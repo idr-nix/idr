@@ -1,6 +1,7 @@
 top: {
   config,
   lib,
+  pkgs,
   utils,
   ...
 }: let
@@ -132,8 +133,27 @@ in {
           # networkd starts before sysinit, so restart targets alone do not
           # guarantee that SOPS and generated credentials exist yet.
           after = ["sops-install-secrets.service" "idr-secrets.service"] ++ networkTargets;
-          partOf = networkTargets;
           serviceConfig.LoadCredential = lib.mapAttrsToList (name: secret: "${name}:${secret.path}") networkSecrets;
+        };
+        # New keys apply to the interface in place. Restarting networkd would
+        # renew every peer's session, and it reads the keys again when it
+        # restarts for other reasons.
+        idr-etcd-wg-keys = {
+          description = "Apply etcd WireGuard keys";
+          wantedBy = ["multi-user.target"];
+          bindsTo = [deviceUnit];
+          wants = networkTargets;
+          after = [deviceUnit "systemd-networkd.service"] ++ networkTargets;
+          partOf = networkTargets;
+          serviceConfig = {
+            Type = "oneshot";
+            RemainAfterExit = true;
+            ExecStart = utils.escapeSystemdExecArgs (
+              [(lib.getExe' pkgs.wireguard-tools "wg") "set" interface "private-key" (toString cfg.privateNetwork.privKey.path)]
+              ++ lib.concatMap (peer: ["peer" peer.pubKey "preshared-key" (toString peer.psk.path)]) cfg.privateNetwork.peers
+            );
+            CapabilityBoundingSet = ["CAP_NET_ADMIN"];
+          };
         };
       }
       // lib.mapAttrs' (name: instance: let
