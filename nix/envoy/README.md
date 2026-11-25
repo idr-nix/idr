@@ -11,10 +11,11 @@ configuration in Envoy's own formats:
   for everything else, such as the admin interface or overload settings,
   besides idr's own `package` and `args`.
 
-### Ingress backends
+### Gateways
 
-An application imports `modules.service.ingress-backend` to be served by an
-ingress:
+An application imports `modules.service.envoy-gateways` to be served by an
+ingress, to reach other domains through an egress, or both: the role sets the
+`id` of each gateway it uses.
 
 | Option | Set by | Purpose |
 |---|---|---|
@@ -23,8 +24,24 @@ ingress:
 | `idr.ingress.certificates` | role | Certificates for the application's domains: names of certificates issued by [`idr-update-certs`](../certs/README.md), and their JSON SOPS files. Applications may share one. |
 | `idr.ingress.listeners` | application | The ingress's listeners that serve the application, which the ingress must have; `["https" "http3"]` by default. |
 | `idr.ingress.routes` | role | Which of the ingress's route tables serves the application; `https` by default. The application's `envoy` puts its virtual hosts there. |
-| `idr.ingress.envoy` | application | Configuration for the ingress, in `idr.envoy`'s format: typically a virtual host and a cluster. No secret references: they are paths on the application's machine. |
+| `idr.ingress.secrets` | role | Secret sources that the ingress's machine reads. Each is a generic secret of the same name in the ingress's `resources.secrets`. |
+| `idr.ingress.envoy` | application | Configuration for the ingress, in `idr.envoy`'s format: typically a virtual host and a cluster. It refers to `secrets` by name, and cannot contain secret references. |
 | `idr.ingress.module` | idr | Generated: the ingress imports it. It peers the two over the mesh, and adds `envoy` and the certificates to the ingress. |
+| `idr.egress.id` | role | The egress's mesh ID. |
+| `idr.egress.psk` | role | Secret source of the PSK shared with the egress. |
+| `idr.egress.domains` | application | Domains that the application resolves to the egress. |
+| `idr.egress.listeners` | application | The egress's listeners that the application connects to, which the egress must have; `["http"]` by default. |
+| `idr.egress.secrets` | role | Secret sources that the egress's machine reads, such as an API key. Each is a generic secret of the same name in the egress's `resources.secrets`. |
+| `idr.egress.envoy` | application | Configuration for the egress, in `idr.envoy`'s format: in each of `listeners`, a filter chain named after the application's mesh ID, and the route tables and clusters it uses. It refers to `secrets` by name, and cannot contain secret references. |
+| `idr.egress.module` | idr | Generated: the egress imports it. It peers the two, adds `envoy` to the egress, and sends the application's connections, and only those, to its filter chains. |
+
+The application calls the domains over plain HTTP, and the egress opens its own
+connections, typically HTTPS, to the real hosts. The egress role gives Envoy
+[internet access](../mesh/README.md#internet-access) and defines the listeners,
+without publishing them.
+
+Envoy's `credential_injector` filter can add an API key from `secrets` to the
+application's requests.
 
 ### Example: an ingress for Vaultwarden
 
@@ -41,7 +58,7 @@ modules.service.vaultwarden = {config, lib, systemdPackage, ...}: let
   # Names are shared by everything on the ingress.
   name = "${config.idr.mesh.id}-vaultwarden";
 in {
-  imports = [inputs.idr.modules.service.ingress-backend];
+  imports = [inputs.idr.modules.service.envoy-gateways];
 
   options.vaultwarden = {
     package = lib.mkOption {
@@ -50,7 +67,7 @@ in {
     };
     domains = lib.mkOption {type = lib.types.listOf lib.types.str;};
     port = lib.mkOption {type = lib.types.port; default = 8000;};
-    adminToken = lib.mkOption {type = inputs.idr.lib.types.secretOrSource;};
+    adminToken = lib.mkOption {type = top.idr-lib.types.secretOrSource;};
   };
 
   config = {

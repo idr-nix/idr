@@ -25,7 +25,7 @@ top: {lib, ...}: {
       environment = config.idr.secrets.vaultwarden-env;
       name = "${config.idr.mesh.id}-vaultwarden";
     in {
-      imports = [top.self.modules.service.ingress-backend];
+      imports = [top.self.modules.service.envoy-gateways];
 
       options.vaultwarden = {
         package = lib.mkOption {

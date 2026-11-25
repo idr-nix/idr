@@ -1,9 +1,9 @@
 top: {lib, ...}: {
-  imports = top.idr-lib.importApplyAll top [./checks/ingress.nix];
+  imports = top.idr-lib.importApplyAll top [./checks/egress.nix ./checks/ingress.nix];
 
   flake.modules.service = {
     envoy = lib.modules.importApply ./service-module.nix top;
-    ingress-backend = lib.modules.importApply ./ingress-backend.nix top;
+    envoy-gateways = lib.modules.importApply ./gateways.nix top;
   };
 
   perSystem = {pkgs, ...}: {
