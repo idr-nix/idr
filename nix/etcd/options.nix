@@ -190,6 +190,12 @@ in {
                   default = "24h";
                   description = "Revision history retention; 0 disables automatic compaction.";
                 };
+                quotaBackendBytes = mkOption {
+                  type = types.ints.positive;
+                  default = 8 * 1024 * 1024 * 1024;
+                  defaultText = "8 GiB";
+                  description = "Size of the member's database at which etcd stops accepting writes, as etcd's quota-backend-bytes. etcd recommends at most 8 GiB.";
+                };
                 cert = mkOption {
                   type = secret;
                   description = "Client endpoint TLS certificate chain in PEM format.";

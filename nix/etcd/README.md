@@ -51,7 +51,8 @@ bind-mounts it into the member's private state directory and runs etcd with
 
 Members retain about 24 hours of revision history; current values remain.
 Configure `clusters.<cluster>.instances.<name>.autoCompactionRetention`
-(`"0"` disables compaction).
+(`"0"` disables compaction). A member stops accepting writes when its database
+reaches `quotaBackendBytes`, 8 GiB by default.
 
 Use `etcdctl watch --progress-notify` or the equivalent client option for idle
 progress updates about every five seconds.
