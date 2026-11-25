@@ -1,9 +1,11 @@
-# etcd users and roles for the mesh agents of the given machines. Each machine
-# gets its own user and role: read and write on the services it declares, and
-# read on their peers. Passwords come from the machines' SOPS sources.
-{lib}: nixosConfigurations: let
-  access = map (machine: machine.config.idr.mesh.etcd.access) (
-    lib.filter (machine: machine.config.idr.mesh.enable or false) (lib.attrValues nixosConfigurations)
+# etcd users and roles for the mesh agents of the given machines in one of
+# their `idr.mesh.etcd` clusters. Each machine gets its own user and role:
+# read and write on the services it declares in the cluster, and read on their
+# peers. Passwords come from the machines' SOPS sources.
+{lib}: cluster: nixosConfigurations: let
+  member = machine: (machine.config.idr.mesh.enable or false) && machine.config.idr.mesh.etcd ? ${cluster};
+  access = map (machine: machine.config.idr.mesh.etcd.${cluster}.access) (
+    lib.filter member (lib.attrValues nixosConfigurations)
   );
   users = map (machine: machine.user) access;
   permission = machine: kind: service: {

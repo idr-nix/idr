@@ -1,7 +1,9 @@
 {-# LANGUAGE OverloadedStrings #-}
 
 module IDR.Mesh.PeerData
-  ( Settings (settingsId, settingsPeers),
+  ( Settings (settingsId, settingsPrefix, settingsPeers, settingsNames, settingsLinks),
+    Link (..),
+    validName,
     declaredPeers,
     PeerDeclaration,
     pskPath,
@@ -31,6 +33,7 @@ import Data.Aeson.KeyMap qualified as KM
 import Data.Aeson.Types (Parser, parseEither, parseMaybe)
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
+import Data.Maybe (fromMaybe)
 import Data.Set (Set)
 import Data.Set qualified as Set
 import Data.Text (Text)
@@ -46,10 +49,48 @@ retirementKey :: MeshPrefix -> ServiceId -> InstanceId -> PublicKey -> Text
 retirementKey prefix service ident key =
   servicePrefix prefix service <> "retirements/" <> instanceIdText ident <> "/" <> publicKeyHex key
 
-data Settings = Settings {settingsId :: ServiceId, settingsPeers :: Map ServiceId PeerDeclaration}
+data Settings = Settings
+  { settingsId :: ServiceId,
+    -- The prefix of the mesh the service registers in.
+    settingsPrefix :: MeshPrefix,
+    settingsPeers :: Map ServiceId PeerDeclaration,
+    -- The names this workload resolves to each peer service's instances.
+    settingsNames :: Map ServiceId [Text],
+    -- The peer services on this machine in other meshes, which links reach at
+    -- their local instance.
+    settingsLinks :: Map ServiceId Link
+  }
+
+data Link = Link
+  { linkPrefix :: MeshPrefix,
+    linkNames :: [Text],
+    -- The linked workload, and the peer services this one forwards for it.
+    linkWorkload :: Maybe String,
+    linkForwards :: [ServiceId]
+  }
 
 instance FromJSON Settings where
-  parseJSON = withObject "mesh service settings" $ \o -> Settings <$> o .: "id" <*> declaredPeers o
+  parseJSON = withObject "mesh service settings" $ \o -> do
+    links <- o .:? "links" .!= Map.empty :: Parser (Map ServiceId Value)
+    Settings
+      <$> o .: "id"
+      <*> o .: "ipv6Prefix"
+      <*> declaredPeers o
+      <*> declaredNames o
+      <*> traverse linked links
+    where
+      linked = withObject "mesh link declaration" $ \l ->
+        Link
+          <$> l .: "ipv6Prefix"
+          <*> (filter validName <$> l .:? "names" .!= [])
+          <*> l .:? "workload"
+          <*> l .:? "forwards" .!= []
+
+-- Malformed names are left out, without affecting the peer.
+declaredNames :: Object -> Parser (Map ServiceId [Text])
+declaredNames o = Map.map names <$> (o .: "peers" :: Parser (Map ServiceId Value))
+  where
+    names = filter validName . fromMaybe [] . parseMaybe (withObject "mesh peer declaration" (\p -> p .:? "names" .!= []))
 
 declaredPeers :: Object -> Parser (Map ServiceId PeerDeclaration)
 declaredPeers o = o .: "peers"
@@ -96,6 +137,16 @@ data Peer = Peer
     peerPresent :: Bool
   }
   deriving (Eq, Show)
+
+-- A lowercase domain name outside the mesh's own, whose first label may be
+-- the wildcard *.
+validName :: Text -> Bool
+validName name =
+  T.length name <= 253 && length labels >= 2 && all label labels && last labels /= "mesh"
+  where
+    labels = T.splitOn "." (fromMaybe name (T.stripPrefix "*." name))
+    label l = not (T.null l) && T.length l <= 63 && T.all allowed l && T.head l /= '-' && T.last l /= '-'
+    allowed c = (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '-'
 
 -- The registration slot a peer occupies.
 peerSlot :: Peer -> (ServiceId, InstanceId)

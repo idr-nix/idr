@@ -26,18 +26,33 @@
       clientAddress = "${cfg.dns.ipv6Prefix}:${subnet}:0001";
       serverAddress = "${cfg.dns.ipv6Prefix}:${subnet}:0002";
       zone = "/run/idr-mesh-dns/zones/${hash}/mesh.zone";
+      namesZone = "/run/idr-mesh-dns/zones/${hash}/names.zone";
       clientMac = "02:00:00:00:00:01";
       serverMac = "02:00:00:00:00:02";
       alias = "idr-mesh-dns-${hash}";
     })
     meshServices;
-  firewall = (import ./dns-firewall.nix {inherit lib pkgs;}) services;
+  # The server inside the DNS namespace that refuses names the views do not
+  # answer.
+  refusingPort = 5300;
+  firewall = (import ./dns-firewall.nix {inherit lib pkgs refusingPort;}) services;
   profiles = lib.mapAttrs (name: service:
     builtins.removeAttrs service ["hash"]
     // {clientFirewall = firewall.clients.${name};})
   services;
+  # The zones of the services each workload reaches through a linked peer,
+  # which that peer's netd writes.
+  routed = lib.mapAttrs (name: service:
+    lib.concatMapAttrs (_: link:
+      lib.genAttrs link.reaches (route: {
+        router = link.workload;
+        zone = "/run/idr-mesh-dns/zones/${services.${name}.hash}/routed-${route}.zone";
+      }))
+    service.links)
+  meshServices;
   corefile = pkgs.writeText "idr-mesh-Corefile" (
-    lib.concatStrings (lib.mapAttrsToList (_: service: ''
+    lib.concatStrings (lib.mapAttrsToList (name: service:
+      ''
         mesh:53 {
           bind ::
           errors
@@ -47,9 +62,51 @@
           file ${service.zone} mesh {
             reload 1s
           }
+          # A new order of a service's instances in each answer spreads clients.
+          loadbalance
         }
-      '')
-      services)
+
+        # The names that the workload declares for its peers. Other names fall through
+        # and are refused, so that a workload with internet access asks its
+        # next resolver. CoreDNS runs template before file, so forward hands
+        # them to the refusing server below.
+        .:53 {
+          bind ::
+          errors
+          view ${service.hash} {
+            expr incidr(client_ip(), '${service.clientAddress}/128')
+          }
+          file ${service.namesZone} . {
+            reload 1s
+            fallthrough
+          }
+          loadbalance
+          forward . [::1]:${toString refusingPort}
+        }
+      ''
+      + lib.concatStrings (lib.mapAttrsToList (route: through: ''
+          ${route}.mesh:53 {
+            bind ::
+            errors
+            view ${service.hash} {
+              expr incidr(client_ip(), '${service.clientAddress}/128')
+            }
+            file ${through.zone} ${route}.mesh {
+              reload 1s
+            }
+            loadbalance
+          }
+        '')
+        routed.${name}))
+    services)
+    + ''
+      .:${toString refusingPort} {
+        bind ::1
+        template IN ANY {
+          rcode REFUSED
+        }
+      }
+    ''
     + ''
       .:53 {
         bind ::
@@ -71,24 +128,48 @@
         END { print "hosts: files dns" }
       ' "$idrNssSource" > "$out"
     '';
+  # With internet access, names that the mesh resolver refuses go to the
+  # internet's resolvers.
+  resolvs = lib.mapAttrs (name: service: let
+    upstream = lib.optionals meshServices.${name}.internet.enable (lib.take 2 cfg.internet.nameservers);
+  in
+    pkgs.writeText "idr-mesh-resolv-${service.hash}.conf" (
+      lib.concatMapStrings (address: "nameserver ${address}\n") ([service.serverAddress] ++ upstream)
+    ))
+  services;
+  # A workload binds its resolv.conf from /run, where the template copies it
+  # in place. Changing its resolvers only reloads the template's instances,
+  # and the workload keeps running and rereads the file.
+  copyResolv = "${lib.getExe' pkgs.coreutils "cp"} /etc/idr-mesh/resolv/%i.conf /run/idr-mesh-resolv/%i.conf";
+  resolvServices = {
+    "idr-mesh-resolv@" = {
+      description = "Mesh DNS resolvers for %i";
+      reloadTriggers = lib.attrValues resolvs;
+      requires = ["systemd-tmpfiles-setup.service"];
+      after = ["systemd-tmpfiles-setup.service"];
+      unitConfig.StopWhenUnneeded = true;
+      serviceConfig = {
+        Type = "oneshot";
+        RemainAfterExit = true;
+        ExecStart = copyResolv;
+        ExecReload = copyResolv;
+      };
+    };
+  };
   dnsServices = name: service: let
     namespace = "idr-mesh-netns@${name}.service";
     state = "/run/idr-mesh-dns-link/${name}/state.json";
     inventory = pkgs.writeText "idr-mesh-dns-${service.hash}.json" (builtins.toJSON {
       services.${name} = profiles.${name};
     });
-    # With internet access, names that the mesh resolver refuses go to the
-    # internet's resolvers.
-    upstream = lib.optionals meshServices.${name}.internet.enable (lib.take 2 cfg.internet.nameservers);
-    resolv = pkgs.writeText "idr-mesh-resolv-${service.hash}.conf" (
-      lib.concatMapStrings (address: "nameserver ${address}\n") ([service.serverAddress] ++ upstream)
-    );
   in {
     ${name} = {
       environment.LD_LIBRARY_PATH = lib.mkDefault "${userNss}";
+      wants = ["idr-mesh-resolv@${name}.service"];
+      after = ["idr-mesh-resolv@${name}.service"];
       serviceConfig = {
         BindReadOnlyPaths = [
-          "${resolv}:/etc/resolv.conf"
+          "/run/idr-mesh-resolv/${name}.conf:/etc/resolv.conf"
           "${nsswitch}:/etc/nsswitch.conf"
         ];
         IPAddressAllow = ["${service.serverAddress}/128"];
@@ -141,15 +222,22 @@ in {
       "d /run/idr-mesh-dns 0750 root ${readerGroup} -"
       # netd writes each workload's zone below from the peers it installed.
       "d /run/idr-mesh-dns/zones 0750 root ${readerGroup} -"
+      "d /run/idr-mesh-resolv 0755 root root -"
     ];
-    environment.etc = {
-      "idr-mesh/dns.json".text = builtins.toJSON {services = profiles;};
-      "idr-mesh/dns-server.nft".source = firewall.server;
-      "idr-mesh/Corefile".source = corefile;
-    };
+    environment.etc =
+      {
+        "idr-mesh/dns.json".text = builtins.toJSON {
+          services = profiles;
+          inherit routed;
+        };
+        "idr-mesh/dns-server.nft".source = firewall.server;
+        "idr-mesh/Corefile".source = corefile;
+      }
+      // lib.mapAttrs' (name: resolv: lib.nameValuePair "idr-mesh/resolv/${name}.conf" {source = resolv;}) resolvs;
 
     systemd.services =
       lib.concatMapAttrs dnsServices services
+      // resolvServices
       // lib.optionalAttrs config.services.nscd.enable {
         nscd.serviceConfig.RuntimeDirectoryPreserve = true;
       }

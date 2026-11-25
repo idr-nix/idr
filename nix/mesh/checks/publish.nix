@@ -105,7 +105,8 @@ top: {lib, ...}: {
           networking.firewall.allowedUDPPorts = lib.mkIf (name == "beta") [53];
           # Leaves port 53 to CoreDNS.
           services.resolved.settings.Resolve.DNSStubListener = lib.mkIf (name == "beta") false;
-          # Changes front's ports to a range and gives app its first one.
+          # Changes front's ports to a range, and gives app its first one and
+          # internet access.
           specialisation = lib.mkIf (name == "alpha") {
             ports.configuration.system.services = {
               front.idr.mesh.publish = lib.mkForce [
@@ -117,12 +118,23 @@ top: {lib, ...}: {
                   };
                 }
               ];
-              app.idr.mesh.publish = [
-                {
-                  proto = "tcp";
-                  port = 8080;
-                }
-              ];
+              app.idr.mesh = {
+                publish = [
+                  {
+                    proto = "tcp";
+                    port = 8080;
+                  }
+                ];
+                internet = {
+                  enable = true;
+                  allow = [
+                    {
+                      proto = "tcp";
+                      port = 8081;
+                    }
+                  ];
+                };
+              };
             };
           };
         })
@@ -145,9 +157,9 @@ top: {lib, ...}: {
               timeout = ",connect-timeout=2" if transport == "TCP" else ""
               return f"echo ping | socat -T 3 - {transport}:{target(address)}:{port}{timeout} | grep ."
 
-          def link_address(family):
+          def link_address(family, service="front"):
               return alpha.succeed(
-                  f"ip netns exec idr-mesh-front ip -json {family} address show dev idr-publish"
+                  f"ip netns exec idr-mesh-{service} ip -json {family} address show dev idr-publish"
                   + " | jq -r '.[0].addr_info[0].local'"
               ).strip()
 
@@ -235,10 +247,18 @@ top: {lib, ...}: {
                       beta.wait_until_succeeds(echo("TCP", address, port), timeout=30)
                   beta.fail(echo("UDP", address))
                   assert beta.wait_until_succeeds(http(address), timeout=30).strip() == "alpha"
+              # Internet access on app's port does not lead into app's link.
+              for family in ["-6", "-4"]:
+                  address = link_address(family, "app")
+                  alpha.fail(inside(f"curl --fail --silent --max-time 4 'http://{target(address)}:8080/'", "outbound"))
+              # app's new internet access needs no restart, also for names.
+              reply = alpha.wait_until_succeeds(inside("curl --fail --silent --max-time 4 'http://internet.test:8081/'", "app"), timeout=30)
+              assert reply.strip() == "reachable", reply
 
               alpha.succeed("/run/booted-system/bin/switch-to-configuration test", timeout=180)
               assert invocations() == before
               alpha.fail("ip netns exec idr-mesh-app ip link show dev idr-publish")
+              assert "2001:db8:1::2" not in alpha.succeed(inside("cat /etc/resolv.conf", "app"))
               for address in ["2001:db8:1::1", "192.168.1.1"]:
                   beta.fail(echo("TCP", address, 8444))
                   beta.fail(http(address))

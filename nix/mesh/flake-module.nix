@@ -2,6 +2,7 @@ top: {lib, ...}: {
   imports = top.idr-lib.importApplyAll top [
     ./checks/connectivity.nix
     ./checks/isolation.nix
+    ./checks/link.nix
     ./checks/lifecycle.nix
     ./checks/psk.nix
     ./checks/publish.nix

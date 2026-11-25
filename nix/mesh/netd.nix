@@ -34,7 +34,7 @@ in {
       # Port retries recognize the kernel's address-in-use error message.
       environment.LC_ALL = "C";
       serviceConfig = {
-        ExecStart = "${meshExe} netd ${cfg.ipv6Prefix} ${toString (cfg.portRange.from + 1)} ${toString cfg.portRange.to}";
+        ExecStart = "${meshExe} netd ${toString (cfg.portRange.from + 1)} ${toString cfg.portRange.to}";
         CapabilityBoundingSet = ["CAP_NET_ADMIN" "CAP_NET_BIND_SERVICE" "CAP_SYS_ADMIN" "CAP_DAC_OVERRIDE" "CAP_DAC_READ_SEARCH"];
         NoNewPrivileges = true;
         UMask = "0077";

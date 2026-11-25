@@ -61,6 +61,12 @@ top: {lib, ...}: {
           networking.nftables.enable = lib.mkIf (name == "alpha") (lib.mkForce false);
           systemd.services.nscd.unitConfig.ConditionPathExists = lib.mkIf (name == "alpha") "/run/mesh-test-start-nscd";
           system.services = lib.mkIf (name == "alpha") {
+            # Names that only alpha's app resolves to beta's, of whose instances
+            # it uses one.
+            app.idr.mesh.peers.${meshFixture.instances.beta.id} = {
+              names = ["named.example.test" "*.wild.example.test"];
+              maxInstances = 1;
+            };
             app.systemd.service.serviceConfig = {
               IPAddressDeny = ["any"];
               IPAddressAllow = ["${meshFixture.prefix}:3333:3333:3333::/96"];
@@ -152,6 +158,19 @@ top: {lib, ...}: {
               alpha.fail(inside(http("2001:db8:1::1", 8081)))
               alpha.wait_until_succeeds(request("beta"))
 
+          with subtest("a workload resolves the names it declares for a peer, also by wildcard"):
+              beta_app = alpha.succeed(inside(f"dig +short {instances['beta']['id']}.mesh AAAA")).strip()
+              for name in ["named.example.test", "any.wild.example.test"]:
+                  alpha.wait_until_succeeds(inside(f"dig +time=1 +tries=1 +short {name} AAAA | grep -x '{beta_app}'"), timeout=60)
+              # Only the declaring workload has them; other names stay refused.
+              for machine, service, name in [
+                  (alpha, "isolated", "named.example.test"),
+                  (beta, "app", "named.example.test"),
+                  (alpha, "app", "unclaimed.example.test"),
+              ]:
+                  reply = machine.succeed(inside(f"dig +time=1 +tries=1 {name} AAAA", service))
+                  assert "status: REFUSED" in reply, reply
+
           with subtest("workloads and CoreDNS cannot change the network isolation"):
               result = check_nscd_isolation()
               process_statuses = [result["status"], alpha.succeed(f"cat /proc/{dns_pid}/status")]
@@ -213,6 +232,30 @@ top: {lib, ...}: {
               finally:
                   restore_dns_firewalls()
               blocked(alpha, cross_service)
+              alpha.wait_until_succeeds(request("beta"))
+
+          with subtest("a workload uses at most the declared number of a peer's instances"):
+              beta_id = instances["beta"]["id"]
+              real = alpha.succeed("jq -r '.state.peers[0].instanceId' /run/idr-mesh-apply/app/desired.json").strip()
+              # A second instance of beta's service, as a flood would register.
+              fake_key = alpha.succeed("wg genkey | wg pubkey").strip()
+              registration = json.dumps({
+                  "publicKey": fake_key,
+                  "publicAddresses": [f"192.0.2.{n}" for n in range(1, 9)],
+                  "peers": {},
+                  "port": 31000,
+                  "healthPort": 30999,
+              })
+              lease = alpha.succeed(admin + "lease grant 600").split()[1]
+              alpha.succeed(admin + f"put --lease={lease} {scope}{beta_id}/instances/0badcafe '{registration}'")
+              alpha.wait_until_succeeds(
+                  "test $(jq '.state.peers | length' /run/idr-mesh-agent/peers/app.json) = 2", timeout=60
+              )
+              wait_mesh_idle(alpha)
+              used = json.loads(alpha.succeed("jq -c '[.state.peers[].instanceId]' /run/idr-mesh-apply/app/desired.json"))
+              assert used == [real], used
+              status = json.loads(alpha.succeed("idr-mesh status"))["workloads"]["app"]
+              assert status["ignoredInstances"] == 1, status
               alpha.wait_until_succeeds(request("beta"))
         '';
     });

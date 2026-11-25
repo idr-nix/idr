@@ -5,7 +5,7 @@
 -- stores and WireGuard peers. The agent's desired state can only name
 -- instances of declared services; netd derives their addresses and chooses
 -- every secret.
-module IDR.Mesh.Apply (Paths (..), Outcome (..), apply) where
+module IDR.Mesh.Apply (Paths (..), Outcome (..), apply, forwarded) where
 
 import Control.Monad (forM, forM_, unless)
 import Data.Aeson
@@ -47,8 +47,13 @@ data Outcome = Outcome
     -- When the earliest PSK switch that waits for its handshake window may
     -- proceed, in seconds since the epoch.
     switchAt :: Maybe Integer,
-    -- The installed peers, by service and mesh address.
-    installed :: [(ServiceId, Text)]
+    -- The installed and the linked peers, by service and mesh address.
+    installed :: [(ServiceId, Text)],
+    -- The names that resolve to those peers, with their mesh addresses.
+    named :: [(Text, Text)],
+    -- The linked workloads, and the installed peer services this workload
+    -- forwards for each.
+    forwarding :: [(String, [ServiceId])]
   }
 
 -- A desired peer netd installs, with the address netd derived for it.
@@ -64,26 +69,41 @@ data Install = Install
 apply ::
   PSK.Unreadable ->
   NS.Workload ->
-  MeshPrefix ->
   Paths ->
   Maybe D.Desired ->
   Maybe D.Desired ->
   IO Outcome
-apply unreadable ns prefix paths previous desired = do
-  declarations <- settingsPeers <$> readJson (settings paths)
-  let declared = Map.keysSet declarations
+apply unreadable ns paths previous desired = do
+  configured <- readJson (settings paths)
+  let prefix = settingsPrefix configured
+      declarations = settingsPeers configured
+      declared = Map.keysSet declarations
+      -- Peers on this machine in other meshes, at their local instance.
+      linked = Map.toList (settingsLinks configured)
+      linkAddress (service, link) = meshAddress (linkPrefix link) service localInstance
+      linkPeers = [(service, linkAddress l) | l@(service, _) <- linked]
+      linkNamed = [(name, linkAddress l) | l@(_, link) <- linked, name <- linkNames link]
   interface <- WG.readInterface ns prefix
   current <- revokeUndeclared ns declared (WG.peers interface)
   reconcileRoutes ns prefix declared
   (stores, changed) <- PSK.syncKeys unreadable (keyStore paths) declarations desired
   let ownKey = WG.ownKey interface
-      outcome = Outcome ownKey (WG.listenPort interface) (fmap PSK.advert stores) changed
+      outcome switch installed' named' =
+        Outcome ownKey (WG.listenPort interface) (fmap PSK.advert stores) changed switch installed' named' (forwarded configured)
   case desired of
-    Nothing -> pure (outcome Nothing [])
+    Nothing -> pure (outcome Nothing linkPeers linkNamed)
     Just d -> do
       peers <- installable prefix declared ownKey stores d
       later <- install ns paths current (maybe Set.empty (moved d) previous) peers
-      pure (outcome later [(D.service (peer i), address i) | i <- peers])
+      let names i = Map.findWithDefault [] (D.service (peer i)) (settingsNames configured)
+      pure . outcome later ([(D.service (peer i), address i) | i <- peers] ++ linkPeers) $
+        [(name, address i) | i <- peers, name <- names i] ++ linkNamed
+
+-- The linked workloads that this one forwards peer services for, with those
+-- services.
+forwarded :: Settings -> [(String, [ServiceId])]
+forwarded configured =
+  [(workload, linkForwards link) | link <- Map.elems (settingsLinks configured), Just workload <- [linkWorkload link], not (null (linkForwards link))]
 
 -- Revoke undeclared peers even when the desired state or runtime secrets are
 -- unavailable. Returns the peers that remain.

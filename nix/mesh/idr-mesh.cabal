@@ -52,6 +52,7 @@ executable idr-mesh
     IDR.Mesh.Instance.Registry
     IDR.Mesh.Inventory
     IDR.Mesh.IP
+    IDR.Mesh.Link
     IDR.Mesh.Namespace
     IDR.Mesh.Netd
     IDR.Mesh.Netd.Server

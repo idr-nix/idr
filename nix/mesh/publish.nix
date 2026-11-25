@@ -8,6 +8,7 @@
   ...
 }: let
   cfg = config.idr.mesh;
+  meshPrefixes = lib.concatMapStringsSep ", " (cluster: "${cluster.ipv6Prefix}::/48") (lib.attrValues cfg.etcd);
   # The workload end of each link. The host ends start with idrp.
   device = "idr-publish";
   publishing =
@@ -48,6 +49,12 @@
       lib.mapAttrsToList (family: addresses: "${family} daddr { ${lib.concatStringsSep ", " addresses} } ${dport}")
       (lib.groupBy family entry.destinations);
   resolver = address: "${family address} daddr ${address} meta l4proto { tcp, udp } th dport 53";
+  reachable = address:
+    builtins.match "[0-9a-fA-F:.]+" address
+    != null
+    && !(lib.hasPrefix "127." address)
+    && address != "::1"
+    && builtins.match "[fF][eE][89abAB][0-9a-fA-F]:.*" address == null;
   range = port:
     if lib.isInt port
     then {
@@ -83,6 +90,10 @@
         chain output {
           type filter hook output priority filter; policy accept;
           oifname "${device}" ct state established,related accept
+          ${lib.optionalString (link.outbound != []) ''
+        # Mesh addresses without a peer route are no internet destination.
+        oifname "${device}" ip6 daddr { ${meshPrefixes} } reject
+      ''}
           ${lib.concatMapStrings (match: ''
           oifname "${device}" ct state new ${match} accept
         '')
@@ -132,9 +143,10 @@
       iifname "idrp*" ct state new drop
     }
   '';
+  # Not into other workloads' links, which only their peers reach.
   forwardRules = lib.concatStrings (lib.mapAttrsToList (_: link:
     lib.concatMapStrings (match: ''
-      iifname "${link.interface}" ${match} accept
+      iifname "${link.interface}" oifname != "idrp*" ${match} accept
     '')
     link.outbound)
   publishing);
@@ -199,6 +211,10 @@ in {
         {
           assertion = lib.all (link: link.outbound == []) (lib.attrValues publishing) || cfg.internet.nameservers != [];
           message = "Mesh internet access needs idr.mesh.internet.nameservers, which defaults to networking.nameservers.";
+        }
+        {
+          assertion = lib.all (link: link.outbound == []) (lib.attrValues publishing) || lib.all reachable (lib.take 2 cfg.internet.nameservers);
+          message = "idr.mesh.internet.nameservers must be IP addresses that workloads reach through the host: not loopback or link-local, and without a port, interface or name.";
         }
         {
           assertion = disjoint published;

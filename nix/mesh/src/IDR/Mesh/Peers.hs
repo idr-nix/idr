@@ -3,7 +3,7 @@
 
 module IDR.Mesh.Peers (Discovery (..), discover, snapshotVersion) where
 
-import Control.Monad (filterM, join, unless, when)
+import Control.Monad (filterM, join, mfilter, unless, when)
 import Data.Aeson
 import Data.Aeson.Types (parseEither)
 import Data.ByteString qualified as BS
@@ -69,7 +69,8 @@ decodeEntry mesh service entry = do
   suffix <- T.stripPrefix (servicePrefix mesh service) (E.entryKey entry)
   case T.splitOn "/" suffix of
     ["instances", rawId] -> do
-      i <- hush (parseInstanceId rawId)
+      -- Links on a machine use the local instance, which no registration claims.
+      i <- mfilter (/= localInstance) (hush (parseInstanceId rawId))
       let registration = do
             leased
             value <- eitherDecodeStrict' bytes

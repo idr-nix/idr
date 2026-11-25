@@ -6,6 +6,9 @@
 -- its lock.
 module IDR.Mesh.Instance
   ( Registrar (..),
+    Cluster (..),
+    readClusters,
+    clusterOf,
     Registration (..),
     Published (..),
     Registering,
@@ -19,23 +22,25 @@ where
 import Control.Concurrent.STM (TVar, readTVar, retry)
 import Control.Monad (forM, forM_, forever, unless, when)
 import Data.Aeson
+import Data.Aeson.Types (Parser, parseEither)
 import Data.ByteString (ByteString)
 import Data.ByteString.Lazy qualified as BL
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Set (Set)
 import Data.Text (Text)
+import Data.Text qualified as T
 import Effectful
 import Effectful.Concurrent (Concurrent, threadDelay)
 import Effectful.Concurrent.Async (concurrently_, mapConcurrently)
 import Effectful.Concurrent.STM (atomically, readTVarIO)
 import Effectful.Exception (finally, trySync)
-import Effectful.Reader.Static (Reader, ask, asks)
+import Effectful.Reader.Static (Reader, asks)
 import IDR.Mesh.Common (atomicWrite, describe, encodeState, listIfPresent, readJson, removeIfExists)
-import IDR.Mesh.Duration (Seconds)
+import IDR.Mesh.Duration (Seconds, parseSeconds)
 import IDR.Mesh.Effects
 import IDR.Mesh.Etcd qualified as E
-import IDR.Mesh.Etcd.Config (Server)
+import IDR.Mesh.Etcd.Config (Server (..))
 import IDR.Mesh.Etcd.Effect
 import IDR.Mesh.Instance.Journal
 import IDR.Mesh.Instance.Registry
@@ -47,16 +52,45 @@ import System.Directory (createDirectoryIfMissing, doesFileExist)
 import System.FilePath ((</>))
 
 data Registrar = Registrar
-  { prefix :: Peer.MeshPrefix,
-    healthPort :: Int,
-    leaseTTL :: Seconds,
-    server :: Server
+  { healthPort :: Int,
+    -- The etcd clusters, by the prefix of the mesh each one holds.
+    clusters :: Map Peer.MeshPrefix Cluster
   }
 
--- What identifies a registration: the declared service and peer services, and
--- the workload's key. The agent registers again when any of it changes.
+data Cluster = Cluster {leaseTTL :: Seconds, server :: Server}
+
+-- The agent's etcd clusters, each with the name of the credential that holds
+-- its password.
+readClusters :: FilePath -> FilePath -> IO (Map Peer.MeshPrefix Cluster)
+readClusters file credentials = do
+  listed <- readJson file >>= either fail pure . parseEither (mapM cluster)
+  let prefixes = map fst listed
+  unless (Peer.unique prefixes) $ fail "Each mesh prefix needs its own etcd cluster"
+  pure (Map.fromList listed)
+  where
+    cluster = withObject "mesh etcd cluster" $ \o -> do
+      prefix <- o .: "ipv6Prefix"
+      ttl <- o .: "leaseTTLSeconds" :: Parser Integer
+      lease <- either fail pure (parseSeconds 1 9_000_000_000 (show ttl))
+      credential <- o .: "credential"
+      unless (validCredential credential) $ fail "Invalid mesh etcd credential name"
+      endpoint <- o .: "endpoint"
+      user <- o .: "username"
+      pure (prefix, Cluster lease (Server endpoint user (credentials </> credential)))
+    validCredential name = not (null name) && all (`notElem` ("/\0" :: String)) name && name `notElem` [".", ".."]
+
+-- The etcd cluster that holds a mesh.
+clusterOf :: (Reader Registrar :> es, IOE :> es) => Peer.MeshPrefix -> Eff es Cluster
+clusterOf prefix = do
+  found <- asks (Map.lookup prefix . clusters)
+  maybe (liftIO (fail ("No etcd cluster holds mesh prefix " ++ T.unpack (Peer.meshPrefixText prefix)))) pure found
+
+-- What identifies a registration: its mesh, the declared service and peer
+-- services, and the workload's key. The agent registers again when any of it
+-- changes.
 data Registration = Registration
-  { declared :: (Peer.ServiceId, Set Peer.ServiceId),
+  { mesh :: Peer.MeshPrefix,
+    declared :: (Peer.ServiceId, Set Peer.ServiceId),
     workloadKey :: Peer.PublicKey
   }
   deriving (Eq)
@@ -107,8 +141,8 @@ register ns registration published =
       threadDelay 5000000
 
 registerOnce :: (Registering es) => NS.Workload -> Registration -> TVar Published -> Eff es ()
-registerOnce ns (Registration (service, peers) key) published = do
-  Registrar {prefix, server, leaseTTL} <- ask
+registerOnce ns (Registration prefix (service, peers) key) published = do
+  Cluster {server, leaseTTL} <- clusterOf prefix
   liftIO (removeIfExists (markerOf name) >> createDirectoryIfMissing True (stateOf name))
   let identity ident = Attempt prefix service ident key
   markUnselected name identity
@@ -189,20 +223,22 @@ republish key published claimed lease = loop
         Just revision -> loop revision next
         Nothing -> liftIO (fail "Mesh registration changed outside this agent")
 
--- Retires the workload's other journaled identities, for example its key from
--- before a reboot.
+-- Retires the workload's other journaled identities in this mesh, for example
+-- its key from before a reboot. The retirement pass retires those in other
+-- meshes through their own etcd clusters.
 retireOthers :: (Registering es, Etcd :> es) => String -> Attempt -> Eff es ()
 retireOthers name active =
   cleanupQueue (journalOf name) active $ \file -> exclusive name $ do
     intent <- liftIO (readIntent file)
-    forM_ intent $ \i -> when (claimIdentity i /= active) $ do
+    let other i = claimIdentity i /= active && meshPrefix (claimIdentity i) == meshPrefix active
+    forM_ intent $ \i -> when (other i) $ do
       liftIO (markRetiring file)
       publishPending sameCluster file i
 
 selectedScope :: String -> Inventory.Inventory -> Maybe (Peer.MeshPrefix, Peer.ServiceId)
 selectedScope name inventory = do
   service <- Map.lookup name (Inventory.services inventory)
-  pure (Inventory.ipv6Prefix inventory, Inventory.id service)
+  pure (Inventory.ipv6Prefix service, Inventory.id service)
 
 -- A registration ends when its workload no longer runs that service in that mesh.
 unselected :: Inventory.Inventory -> String -> Intent -> Bool
@@ -243,11 +279,18 @@ retireWorkload name = do
     -- The inventory and status are read under the lock, so a registration
     -- that just claimed the slot again is not retired.
     retireFile file = do
-      servers <- asks server
       inventory <- liftIO Inventory.readInventory
       present <- liftIO (doesFileExist (Netd.statusFile name))
       status <- liftIO (Netd.readStatus name)
       intent <- liftIO (readIntent file)
       forM_ intent $ \i -> do
         when (unselected inventory name i || stale present status i) (liftIO (markRetiring file))
-        publishPending (withEtcd (E.withMeshEtcd servers)) file i
+        found <- asks (Map.lookup (meshPrefix (claimIdentity i)) . clusters)
+        case found of
+          Just cluster -> publishPending (withEtcd (E.withMeshEtcd (server cluster))) file i
+          -- Without its etcd cluster, the registration expires with its lease.
+          Nothing -> do
+            retiring <- liftIO (retirementPending file)
+            when retiring $ do
+              logLine ("Retiring " ++ file ++ " without a marker: its etcd cluster is no longer configured")
+              liftIO (completeRetirement file)

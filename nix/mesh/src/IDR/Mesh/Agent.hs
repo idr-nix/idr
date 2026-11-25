@@ -66,7 +66,14 @@ import System.INotify (EventVariety (Delete, MoveIn), addWatch, initINotify, kil
 import System.Posix.Signals (Handler (Catch), installHandler, sigHUP)
 import System.Timeout (timeout)
 
-data Config = Config {registrar :: Instance.Registrar, explicitAddresses :: [IP]}
+-- The health port, the file that lists the etcd clusters, the directory of
+-- their passwords, and the addresses to advertise instead of discovered ones.
+data Config = Config
+  { healthPort :: Int,
+    clustersFile :: FilePath,
+    credentials :: FilePath,
+    explicitAddresses :: [IP]
+  }
 
 data Signals = Signals
   { -- Bumped by every event that can change which workloads should run.
@@ -89,6 +96,7 @@ run :: Config -> IO ()
 run config = withActivatedSockets $ \case
   [netlink] -> do
     requireSocket [AF_ROUTE] Raw netlink
+    registrar <- Instance.Registrar (healthPort config) <$> Instance.readClusters (clustersFile config) (credentials config)
     signals <- Signals <$> STM.newTVarIO 0 <*> STM.newTVarIO True
     -- systemd reloads the agent when the inventory changes.
     void $ installHandler sigHUP (Catch (wake signals)) Nothing
@@ -106,7 +114,7 @@ run config = withActivatedSockets $ \case
             . runConcurrent
             . runLog
             . runLocks
-            . runReader (registrar config)
+            . runReader registrar
             . runReader shared
             . runReader signals
     effects $
@@ -297,7 +305,7 @@ registrationOf ::
   (NS.Workload, Instance.Registration, Instance.Published)
 registrationOf advertised (ns, service, status) =
   ( ns,
-    Instance.Registration (declarations service) (Netd.publicKey status),
+    Instance.Registration (Inventory.ipv6Prefix service) (declarations service) (Netd.publicKey status),
     Instance.Published (Netd.port status) grants (fromMaybe [] advertised)
   )
   where
@@ -310,7 +318,7 @@ scopeOf ::
   (NS.Workload, Scope, Maybe Integer)
 scopeOf (ns, service, status) =
   let (own, peers) = declarations service
-   in (ns, Scope own (Set.toList peers) (Netd.publicKey status), Netd.switchAt status)
+   in (ns, Scope (Inventory.ipv6Prefix service) own (Set.toList peers) (Inventory.maxInstances service) (Netd.publicKey status), Netd.switchAt status)
 
 -- The service's ID and its declared peer services.
 declarations :: Inventory.Service -> (ServiceId, Set.Set ServiceId)

@@ -2,7 +2,7 @@
 
 -- The agent's side of convergence for one workload: discovery, the desired
 -- state derived from it, and handing that state to netd.
-module IDR.Mesh.Converge (Shared (..), Scope (..), Converging, converge, snapshotDirectory) where
+module IDR.Mesh.Converge (Shared (..), Scope (..), Converging, converge, snapshotDirectory, defaultMaxInstances) where
 
 import Control.Applicative ((<|>))
 import Control.Concurrent.STM (STM, TVar, check, modifyTVar', orElse, readTVar, retry, writeTVar)
@@ -23,7 +23,7 @@ import Effectful.Exception (finally, trySync)
 import Effectful.Reader.Static (Reader, ask, asks)
 import IDR.Mesh.Desired qualified as D
 import IDR.Mesh.Effects (Log, logFailure)
-import IDR.Mesh.Instance (Registrar (..))
+import IDR.Mesh.Instance (Cluster (..), Registrar, clusterOf)
 import IDR.Mesh.Namespace qualified as NS
 import IDR.Mesh.Netd qualified as Netd
 import IDR.Mesh.PSK qualified as PSK
@@ -46,7 +46,7 @@ data Shared = Shared
   }
 
 -- What a workload's discovery follows. A change restarts it.
-data Scope = Scope {own :: ServiceId, declared :: [ServiceId], key :: PublicKey}
+data Scope = Scope {mesh :: MeshPrefix, own :: ServiceId, declared :: [ServiceId], limits :: Map ServiceId Int, key :: PublicKey}
   deriving (Eq)
 
 -- Retained snapshots survive an agent restart, so peers stay usable while
@@ -78,11 +78,12 @@ converge ns scope switchAt = do
 -- Discovery publishes each snapshot; it restarts five seconds after a failure.
 discovering :: (Converging es) => NS.Workload -> Scope -> TVar (Maybe Snapshot) -> Eff es a
 discovering ns scope snapshot = forever $ do
-  Registrar {prefix, server} <- ask
   let name = NS.serviceName ns
       cache = snapshotDirectory </> name <.> "json"
-      discovery = Discovery prefix (key scope) (own scope) (declared scope) cache
-  result <- trySync (discover server discovery (atomically . writeTVar snapshot . Just))
+      discovery = Discovery (mesh scope) (key scope) (own scope) (declared scope) cache
+  result <- trySync $ do
+    Cluster {server} <- clusterOf (mesh scope)
+    discover server discovery (atomically . writeTVar snapshot . Just)
   either (logFailure (name ++ ": could not discover peers")) pure result
   threadDelay 5000000
 
@@ -153,7 +154,7 @@ desiredState scope inbound failing s =
   D.Desired
     { D.revision = snapRevision s,
       D.published = foldMap peerAdverts self,
-      D.peers = map peer (sortOn peerSlot (snapPeers s))
+      D.peers = map peer (sortOn peerSlot (usedPeers scope s))
     }
   where
     self = snapSelf s
@@ -173,14 +174,32 @@ desiredState scope inbound failing s =
       ours <- self >>= advertFor (peerServiceId p)
       theirs <- advertFor (own scope) p
       PSK.agreed (key scope, ours) (peerPublicKey p, theirs)
-    -- The initiator uses the peer's first healthy advertised address, or its
-    -- first address when none is healthy; the other end learns the return
-    -- endpoint.
+    -- The initiator uses the first healthy of the peer's probed addresses, or
+    -- the first when none is healthy; the other end learns the return endpoint.
     endpoint p = do
       guard (initiates inbound (key scope) p)
       let healthy a = Set.notMember (Target a (peerHealthPort p)) failing
-      address <- find healthy (peerAddresses p) <|> listToMaybe (peerAddresses p)
+      address <- find healthy (probed p) <|> listToMaybe (probed p)
       pure (D.Endpoint address (peerPort p))
+
+-- A workload uses at most this many instances of a peer service unless it
+-- declares another limit, so that a flood of registrations costs it a bounded
+-- number of WireGuard peers and probes.
+defaultMaxInstances :: Int
+defaultMaxInstances = 4096
+
+-- The discovered peers this workload uses: of each peer service, the instances
+-- whose registrations changed least recently, up to its limit.
+usedPeers :: Scope -> Snapshot -> [Peer]
+usedPeers scope s = concatMap keep (Map.toList (Map.fromListWith (++) [(peerServiceId p, [p]) | p <- snapPeers s]))
+  where
+    keep (service, ps) =
+      take (Map.findWithDefault defaultMaxInstances service (limits scope)) (sortOn (\p -> (peerRevision p, peerSlot p)) ps)
+
+-- The addresses of an instance that are probed and tried, at most four of those
+-- it advertises.
+probed :: Peer -> [Text]
+probed = take 4 . peerAddresses
 
 accepts :: Scope -> Peer -> Bool
 accepts scope p = Map.member (own scope) (peerAdverts p)
@@ -188,8 +207,8 @@ accepts scope p = Map.member (own scope) (peerAdverts p)
 -- The addresses, in priority order, of every accepting peer this end initiates to.
 initiatedTargets :: Scope -> Bool -> Snapshot -> [[Target]]
 initiatedTargets scope inbound s =
-  [ map (`Target` peerHealthPort p) (peerAddresses p)
-  | p <- snapPeers s,
+  [ map (`Target` peerHealthPort p) (probed p)
+  | p <- usedPeers scope s,
     accepts scope p,
     initiates inbound (key scope) p
   ]

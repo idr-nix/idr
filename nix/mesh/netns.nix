@@ -11,7 +11,8 @@
     lib.nameValuePair "idr-mesh-netns@${name}" {
       overrideStrategy = "asDropin";
       enableDefaultPath = false;
-      restartTriggers = [service.id];
+      # A new service ID or mesh gives the workload a new namespace.
+      restartTriggers = [service.id service.ipv6Prefix];
     })
   meshServices;
 in {

@@ -6,6 +6,7 @@ top: {
   inherit (lib) mkOption types;
   cfg = config.idr.mesh;
   serviceIdPattern = "[0-9a-f]{12}";
+  names = lib.concatMap (peer: peer.names) (lib.attrValues cfg.peers);
   ports = description:
     mkOption {
       type = types.either (types.ints.between 1 65535) (types.submodule {
@@ -42,15 +43,46 @@ in {
       description = "48-bit service ID as twelve lowercase hexadecimal digits. Replicas share this ID.";
     };
 
+    etcd = mkOption {
+      type = types.nullOr types.str;
+      default = null;
+      example = "other";
+      description = "The machine's `idr.mesh.etcd` cluster that this service registers in; `idr.mesh.defaultEtcd` when null.";
+    };
+
     peers = mkOption {
       type = types.attrsOf (types.submodule {
+        options.etcd = mkOption {
+          type = types.nullOr types.str;
+          default = null;
+          example = "other";
+          description = "The machine's `idr.mesh.etcd` cluster that the peer service registers in; this service's when null. A peer in another cluster runs on the same machine, which links the two services directly.";
+        };
+        options.routes = mkOption {
+          type = types.listOf (types.strMatching serviceIdPattern);
+          default = [];
+          example = ["444444444444"];
+          description = "For a peer in another cluster: services that one of the two reaches through the other, which forwards the connections from its own address. Each is a peer of the forwarding service in its cluster. List the same services on both.";
+        };
         options.psk = mkOption {
-          type = top.idr-lib.types.secretOrSource;
-          description = "WireGuard preshared key shared by this pair of services, as a runtime secret reference or a secret source.";
+          type = types.nullOr top.idr-lib.types.secretOrSource;
+          default = null;
+          description = "WireGuard preshared key shared by this pair of services, as a runtime secret reference or a secret source. Required for a peer in this service's cluster.";
+        };
+        options.names = mkOption {
+          type = types.listOf (types.strMatching "(\\*\\.)?([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\\.)+[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?");
+          default = [];
+          example = ["vault.example.com" "*.example.com"];
+          description = "Domain names that this workload resolves to the peer service's instances. A leading `*.` covers the names below a domain that no other name matches.";
+        };
+        options.maxInstances = mkOption {
+          type = types.ints.positive;
+          default = 4096;
+          description = "Most instances of the peer service that this workload uses; beyond them, it keeps those whose registrations changed least recently.";
         };
       });
       default = {};
-      description = "Permitted peer services, keyed by their twelve-digit lowercase hexadecimal service IDs. Configure the reciprocal relationship with the same PSK on each peer.";
+      description = "Permitted peer services, keyed by their twelve-digit lowercase hexadecimal service IDs. Configure the reciprocal relationship on each peer, with the same PSK.";
     };
 
     publish = mkOption {
@@ -105,6 +137,14 @@ in {
     {
       assertion = lib.all (entry: lib.isInt entry.port || entry.port.from <= entry.port.to) (cfg.publish ++ cfg.internet.allow);
       message = "idr.mesh.publish and idr.mesh.internet.allow port ranges must not end before they start.";
+    }
+    {
+      assertion = !(lib.any (name: lib.hasSuffix ".mesh" name) names);
+      message = "idr.mesh.peers names must not be below mesh, which the mesh names itself.";
+    }
+    {
+      assertion = lib.allUnique names;
+      message = "Each name in idr.mesh.peers can lead to only one peer.";
     }
   ];
 

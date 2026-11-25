@@ -6,6 +6,7 @@
   lib,
   options,
   pkgs,
+  utils,
   ...
 }: let
   cfg = config.idr.mesh;
@@ -59,10 +60,14 @@ in {
         };
         serviceConfig = {
           Type = "exec";
-          ExecStart = meshEtcd.command "agent" (
-            [cfg.ipv6Prefix port (toString cfg.etcd.leaseTTLSeconds)]
-            ++ lib.concatMap (address: ["--public-address" address]) cfg.publicAddresses
-          );
+          # %d is the directory of the clusters' passwords.
+          ExecStart =
+            utils.escapeSystemdExecArgs (
+              [meshExe "agent"]
+              ++ lib.concatMap (address: ["--public-address" address]) cfg.publicAddresses
+              ++ [port meshEtcd.clusters]
+            )
+            + " %d";
           ExecReload = "${lib.getExe' pkgs.coreutils "kill"} -HUP $MAINPID";
           # A stopped agent holds no registration, however it stopped.
           ExecStopPost = "${lib.getExe' pkgs.coreutils "rm"} -rf /run/idr-mesh-agent/registered";

@@ -6,7 +6,7 @@ Configure each machine's advertised addresses and etcd credentials:
 idr.mesh = {
   enable = true;
   publicAddresses = ["2001:db8::10" "203.0.113.10"];
-  etcd = {
+  etcd.main = {
     endpoint = "http://main.etcd.internal:1023";
     username = "mesh-${config.networking.hostName}";
     password = {
@@ -32,7 +32,7 @@ On the RBAC machines, derive the etcd
 ```nix
 idr.etcd.clusters.main.rbac = lib.mkMerge [
   {...}
-  (inputs.idr.lib.meshRbac self.nixosConfigurations)
+  (inputs.idr.lib.meshRbac "main" self.nixosConfigurations)
 ];
 ```
 
@@ -42,8 +42,8 @@ addresses.
 `portRange` defaults to `30000`-`32767`. The first port is reserved for UDP health
 checks; WireGuard instances use the remaining ports.
 
-`ipv6Prefix` defaults to `fdb4:cb46:0ef1`. Use the same prefix on all machines
-in the mesh.
+A cluster's `ipv6Prefix` defaults to `fdb4:cb46:0ef1`. Use the same prefix on all
+machines in the cluster.
 
 Add mesh settings to an existing modular service:
 
@@ -61,7 +61,86 @@ Configure the other service with ID `333333333333`, peer `222222222222`, and the
 same PSK. Replicas share the service ID and peer declarations. To declare peering
 between replicas, add the service's own ID to `peers`.
 
-Use `333333333333.mesh` to reach the peer's instances.
+Use `333333333333.mesh` to reach the peer's instances. A workload uses at most
+4096 instances of each peer service; set `idr.mesh.peers.<id>.maxInstances` to
+change that.
+
+### Several etcd clusters
+
+Each cluster in `idr.mesh.etcd` holds a mesh of its own, with its own
+`ipv6Prefix`. Clusters can share an etcd if each has its own user. With more
+than one cluster, choose the default:
+
+```nix
+idr.mesh = {
+  defaultEtcd = "main";
+  etcd.other = {
+    ipv6Prefix = "fd7a:3e19:c204";
+    endpoint = "http://other.etcd.internal:1023";
+    username = "mesh-${config.networking.hostName}";
+    password = {
+      sopsFile = ./mesh-etcd-other.enc.json;
+      key = "password";
+    };
+  };
+};
+```
+
+Register a service in another cluster with `idr.mesh.etcd = "other";`. Moving a
+service to another cluster restarts its workload. Derive each cluster's users
+on its RBAC machines with `meshRbac "<cluster>"`.
+
+### Links
+
+A service reaches a peer in another cluster on the same machine over a direct
+link. Declare the peer on both services, with the other's cluster and without a
+PSK:
+
+```nix
+# 222222222222, in main
+idr.mesh.peers."333333333333".etcd = "other";
+
+# 333333333333, in other
+idr.mesh.peers."222222222222".etcd = "main";
+```
+
+`333333333333.mesh` and the peer's `names` resolve to the peer's address on the
+link. Adding or removing a link does not restart the workloads.
+
+Reach the peer's own peers through it, at their `.mesh` names. List them on
+both services:
+
+```nix
+# 222222222222, in main
+idr.mesh.peers."333333333333" = {
+  etcd = "other";
+  routes = ["444444444444"];
+};
+
+# 333333333333, in other, with the peer 444444444444
+idr.mesh.peers."222222222222" = {
+  etcd = "main";
+  routes = ["444444444444"];
+};
+```
+
+`444444444444` sees the connections as coming from `333333333333`. Routes need
+Linux 6.17 or later.
+
+### Names
+
+Resolve domain names to a peer's instances in this workload:
+
+```nix
+idr.mesh.peers."333333333333" = {
+  psk = {sopsFile = ./mesh-psk.enc.json; key = "psk";};
+  names = ["vault.example.com" "*.example.com"];
+};
+```
+
+A leading `*.` covers the names below a domain that no other name matches. The
+names resolve to IPv6 addresses, and each leads to one peer. Changing them does
+not restart the workload.
 
 ### Published ports
 

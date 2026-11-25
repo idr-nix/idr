@@ -4,7 +4,7 @@
 -- before it is sent, so a lost response or a crash is resumed, not repeated.
 module IDR.Mesh.Instance.Registry (Claim (..), claim, publishPending) where
 
-import Control.Monad (forM_, guard, void, when)
+import Control.Monad (forM_, guard, mfilter, void, when)
 import Data.Aeson (decodeStrict', toJSON, withObject, (.:))
 import Data.Aeson.KeyMap qualified as KM
 import Data.Aeson.Types (parseMaybe)
@@ -21,7 +21,7 @@ import IDR.Mesh.Etcd qualified as E
 import IDR.Mesh.Etcd.Effect
 import IDR.Mesh.Instance.Journal
 import IDR.Mesh.PeerData qualified as Peer
-import System.Random (randomIO)
+import System.Random (randomRIO)
 
 -- A claimed slot: the identity, its lease and the revision of the
 -- registration it wrote.
@@ -68,10 +68,10 @@ claim ::
   Eff es Claim
 claim leaseTTL journal idFile identity value checkSelection = do
   saved <- liftIO (savedInstanceId idFile)
-  maybe allocate pure saved >>= tryClaim (128 :: Int)
+  maybe allocate pure (mfilter (/= Peer.localInstance) saved) >>= tryClaim (128 :: Int)
   where
     allocate = liftIO $ do
-      ident <- Peer.instanceIdFromWord32 <$> randomIO
+      ident <- Peer.instanceIdFromWord32 <$> randomRIO (1, maxBound)
       durableWrite Nothing idFile (encodeState instanceIdVersion ident)
       pure ident
 

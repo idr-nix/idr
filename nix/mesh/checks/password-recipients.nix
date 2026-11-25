@@ -32,7 +32,7 @@
         imports = builtins.attrValues {inherit (top.self.modules.nixos) mesh sops secrets systemd;};
         idr.mesh = {
           enable = true;
-          etcd = {
+          etcd.main = {
             endpoint = "http://main.etcd.internal:1023";
             username = "mesh-host";
             password = {
@@ -64,7 +64,7 @@
             restartTarget = "test.target";
           };
         }
-        // top.idr-lib.meshRbac {mesh-host.config = meshHost;};
+        // top.idr-lib.meshRbac "main" {mesh-host.config = meshHost;};
     }
   ];
   # A project machine with the SOPS files that a configuration reads.

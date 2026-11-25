@@ -20,12 +20,12 @@ import Data.Time.Clock.POSIX (getPOSIXTime)
 import GHC.Generics (Generic)
 import IDR.Mesh.Addresses (addressesFile, addressesVersion)
 import IDR.Mesh.Common (atomicWriteWithMode, readSaved, trySync)
-import IDR.Mesh.Converge (snapshotDirectory)
+import IDR.Mesh.Converge (defaultMaxInstances, snapshotDirectory)
 import IDR.Mesh.Instance (registeredDirectory, registeredVersion)
 import IDR.Mesh.Inventory qualified as Inventory
 import IDR.Mesh.Namespace qualified as NS
 import IDR.Mesh.Netd qualified as Netd
-import IDR.Mesh.PeerData (InstanceId, MeshPrefix, ServiceId, instanceIdText, serviceIdText)
+import IDR.Mesh.PeerData (InstanceId, ServiceId, instanceIdText, serviceIdText)
 import IDR.Mesh.Peers (snapshotVersion)
 import IDR.Mesh.Probe (Target, unhealthyFile, unhealthyVersion)
 import IDR.Mesh.WireGuard qualified as WG
@@ -51,7 +51,9 @@ data Workload = Workload
     peers :: Peers,
     wireguard :: Maybe WireGuard,
     -- Only while the workload is up; netd keeps its last report after it stops.
-    pskMismatches :: Maybe Int
+    pskMismatches :: Maybe Int,
+    -- Discovered peer instances beyond the workload's limit for their service.
+    ignoredInstances :: Maybe Int
   }
   deriving (Generic)
 
@@ -77,8 +79,7 @@ collect :: IO Host
 collect = do
   inventory <- Inventory.readInventory
   now <- floor <$> getPOSIXTime
-  let prefix = Inventory.ipv6Prefix inventory
-  states <- Map.traverseWithKey (workload now prefix) (Inventory.services inventory)
+  states <- Map.traverseWithKey (workload now) (Inventory.services inventory)
   addresses <- readSaved addressesVersion addressesFile
   unhealthy <- fromMaybe Set.empty <$> readSaved unhealthyVersion unhealthyFile
   pure
@@ -88,8 +89,8 @@ collect = do
         workloads = states
       }
 
-workload :: Integer -> MeshPrefix -> String -> Inventory.Service -> IO Workload
-workload now prefix name declared = do
+workload :: Integer -> String -> Inventory.Service -> IO Workload
+workload now name declared = do
   status <- readSaved Netd.statusVersion (Netd.statusFile name) :: IO (Maybe Netd.Status)
   registered <- readSaved registeredVersion (registeredDirectory </> name) :: IO (Maybe InstanceId)
   snapshot <- readSaved snapshotVersion (snapshotDirectory </> name <.> "json") :: IO (Maybe Value)
@@ -97,9 +98,12 @@ workload now prefix name declared = do
   psk <- readSaved Netd.pskStatusVersion (Netd.appliedDirectory name </> "psk.json") :: IO (Maybe [Value])
   link <- case (status, NS.parseService name) of
     -- The workload can go down while this reads its link.
-    (Just _, Right ns) -> either (const Nothing) Just <$> trySync (WG.readInterface ns prefix)
+    (Just _, Right ns) -> either (const Nothing) Just <$> trySync (WG.readInterface ns (Inventory.ipv6Prefix declared))
     _ -> pure Nothing
   let presence = fromMaybe [] (snapshot >>= parseMaybe snapshotPresence)
+      counts = Map.fromListWith (+) [(s, 1 :: Int) | s <- fromMaybe [] (snapshot >>= parseMaybe snapshotServices)]
+      limit s = Map.findWithDefault defaultMaxInstances s (Inventory.maxInstances declared)
+      ignored = sum [max 0 (n - limit s) | (s, n) <- Map.toList counts]
       recent p = maybe False (\at -> now - at < recentSeconds) (WG.handshake p)
       linkPeers = Map.elems . WG.peers <$> link
   pure
@@ -111,12 +115,15 @@ workload now prefix name declared = do
         appliedRevision = desired >>= parseMaybe revision,
         peers = Peers (length (filter id presence)) (length (filter not presence)),
         wireguard = (\ps -> WireGuard (length ps) (length (filter recent ps))) <$> linkPeers,
-        pskMismatches = length (mapMaybe (parseMaybe mismatch) (fromMaybe [] psk)) <$ status
+        pskMismatches = length (mapMaybe (parseMaybe mismatch) (fromMaybe [] psk)) <$ status,
+        ignoredInstances = ignored <$ snapshot
       }
   where
     revision = withObject "mesh state" (.: "revision") :: Value -> Parser Integer
     snapshotPresence = withObject "mesh peer snapshot" $ \o ->
       o .: "peers" >>= traverse (withObject "mesh peer" (.: "registrationPresent"))
+    snapshotServices = withObject "mesh peer snapshot" $ \o ->
+      o .: "peers" >>= traverse (withObject "mesh peer" (.: "serviceId")) :: Parser [ServiceId]
     -- An entry whose installed key is not the agreed one, or that has none.
     mismatch = withObject "mesh PSK status" $ \o -> do
       installedKey <- o .: "installed" :: Parser Value
@@ -151,6 +158,8 @@ metrics host =
         each (\w -> [([], recentHandshakes g) | Just g <- [wireguard w]]),
       family "idr_mesh_psk_mismatches" "Installed peers whose PSK is not the agreed one." $
         each (\w -> [([], n) | Just n <- [pskMismatches w]]),
+      family "idr_mesh_ignored_instances" "Discovered peer instances beyond the workload's limit for their service, which it does not use." $
+        each (\w -> [([], n) | Just n <- [ignoredInstances w]]),
       family "idr_mesh_public_addresses" "Public addresses the host advertises." $
         [([], maybe 0 length (publicAddresses host))],
       family "idr_mesh_unhealthy_endpoints" "Peer endpoints that fail their health check." $

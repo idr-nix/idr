@@ -1,15 +1,12 @@
 module Main (main) where
 
 import Control.Monad (join)
-import Data.String (IsString, fromString)
+import Data.String (IsString)
 import IDR.Mesh.Addresses qualified as Addresses
 import IDR.Mesh.Agent qualified as Agent
 import IDR.Mesh.Dns.Transport qualified as DnsTransport
-import IDR.Mesh.Duration (parseSeconds)
-import IDR.Mesh.Etcd.Config (Server (..))
 import IDR.Mesh.Health qualified as Health
-import IDR.Mesh.Identity (MeshPrefix, parseMeshPrefix)
-import IDR.Mesh.Instance qualified as Instance
+import IDR.Mesh.Link qualified as Link
 import IDR.Mesh.Namespace qualified as NS
 import IDR.Mesh.Netd qualified as Netd
 import IDR.Mesh.Netd.Server qualified as Server
@@ -36,20 +33,20 @@ commands =
       subcommand "metrics" "Write mesh metrics for node-exporter's textfile collector; needs root" $
         Status.writeMetrics <$> arg "FILE",
       subcommand "dns-transport" "Manage the isolated mesh DNS namespace and links" dnsTransport,
-      subcommand "publish" "Manage the links that carry a workload's published ports" publish
+      subcommand "publish" "Manage the links that carry a workload's published ports" publish,
+      subcommand "link" "Manage the links to peers on this machine in other meshes" link
     ]
   where
     agentHelp = "Collect host addresses, and register and retire this host's mesh instances"
 
 agent :: Parser Agent.Config
-agent = Agent.Config <$> registrar <*> many publicAddress
+agent =
+  Agent.Config
+    <$> readArg "HEALTH-PORT" parsePort
+    <*> arg "CLUSTERS"
+    <*> arg "CREDENTIALS-DIRECTORY"
+    <*> many publicAddress
   where
-    registrar =
-      Instance.Registrar
-        <$> meshPrefix
-        <*> readArg "HEALTH-PORT" parsePort
-        <*> readArg "LEASE-TTL-SECONDS" (parseSeconds 1 9_000_000_000)
-        <*> server
     publicAddress =
       option (eitherReader Addresses.parseAddress) $
         long "public-address"
@@ -59,8 +56,7 @@ agent = Agent.Config <$> registrar <*> many publicAddress
 netd :: Parser Server.Config
 netd =
   Server.Config
-    <$> meshPrefix
-    <*> readArg "FIRST-PORT" parsePort
+    <$> readArg "FIRST-PORT" parsePort
     <*> readArg "LAST-PORT" parsePort
 
 ctl :: Parser (IO ())
@@ -100,11 +96,14 @@ publish =
         Publish.removeLink <$> arg "SERVICE" <*> arg "INVENTORY" <*> arg "STATE"
     ]
 
-server :: Parser Server
-server = Server <$> arg "ENDPOINT" <*> arg "USER" <*> arg "PASSWORD-FILE"
-
-meshPrefix :: Parser MeshPrefix
-meshPrefix = readArg "PREFIX" (parseMeshPrefix . fromString)
+link :: Parser (IO ())
+link =
+  subcommands
+    [ subcommand "create" "Create or update the link between two workloads" $
+        Link.createLink <$> arg "PROFILE",
+      subcommand "remove" "Remove the link between two workloads" $
+        Link.removeLink <$> arg "PROFILE"
+    ]
 
 arg :: (IsString a) => String -> Parser a
 arg name = strArgument (metavar name)

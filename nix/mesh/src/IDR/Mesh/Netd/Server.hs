@@ -14,7 +14,7 @@ import Control.Concurrent.MVar (MVar, newMVar, withMVar)
 import Control.Concurrent.STM (TVar, check, modifyTVar', orElse, readTVar, registerDelay, stateTVar)
 import Control.Concurrent.STM qualified as STM
 import Control.Exception qualified as E
-import Control.Monad (forM_, unless, void)
+import Control.Monad (forM_, guard, unless, void)
 import Data.Aeson
 import Data.Aeson.Types (parseEither)
 import Data.ByteString (ByteString)
@@ -48,14 +48,14 @@ import IDR.Mesh.Common
 import IDR.Mesh.Desired qualified as D
 import IDR.Mesh.Dns qualified as Dns
 import IDR.Mesh.Effects
-import IDR.Mesh.Identity (InstanceId, MeshPrefix, ServiceId)
+import IDR.Mesh.Identity (InstanceId, ServiceId)
 import IDR.Mesh.Inventory qualified as Inventory
 import IDR.Mesh.Namespace qualified as NS
 import IDR.Mesh.Netd
 import IDR.Mesh.Netns qualified as Netns
 import IDR.Mesh.PSK qualified as PSK
 import IDR.Mesh.PSK.Keys (keys)
-import IDR.Mesh.PeerData (Settings (settingsId))
+import IDR.Mesh.PeerData (Settings (settingsId, settingsPrefix))
 import IDR.Mesh.SocketActivation (requireSocket, withActivatedSockets)
 import Network.Socket
   ( Family (AF_UNIX),
@@ -73,8 +73,8 @@ import System.Posix.Files (setFileMode)
 import System.Posix.Signals (Handler (Catch), installHandler, sigTERM)
 import System.Timeout (timeout)
 
--- The mesh prefix and the inclusive WireGuard port range.
-data Config = Config {prefix :: MeshPrefix, firstPort, lastPort :: Int}
+-- The inclusive WireGuard port range.
+data Config = Config {firstPort, lastPort :: Int}
 
 data Env = Env
   { config :: Config,
@@ -265,10 +265,11 @@ up ns = do
   Config {firstPort, lastPort} <- asks config
   lock <- asks ports
   liftIO (withMVar lock (\_ -> Netns.allocatePort ns firstPort lastPort) >> prepare ns)
-  service <- liftIO (settingsId <$> readJson (Apply.settings (paths ns)))
+  configured <- liftIO (readJson (Apply.settings (paths ns)))
+  let service = settingsId configured
   registered <- liftIO (readState instanceVersion (instanceFile ns))
   case registered of
-    Just (owner, ident) | owner == service -> address ns service ident
+    Just (owner, ident) | owner == service -> address ns configured ident
     Just _ -> liftIO (mapM_ removeIfExists [instanceFile ns, desiredFile ns])
     Nothing -> pure ()
   -- Up is not ordered after the secrets, so it keeps the last readable keys.
@@ -279,11 +280,18 @@ up ns = do
 -- until its next rekey. The stored desired state and the PSK report belong to
 -- the removed key, so the next Up waits for the agent's desired state.
 down :: (Server es) => NS.Workload -> Eff es ()
-down ns = liftIO $ do
-  removeIfExists (statusFile (NS.serviceName ns))
-  Netns.remove ns
-  removePathForcibly (keysDirectory ns)
-  mapM_ removeIfExists [desiredFile ns, Apply.pskStatus (paths ns)]
+down ns = do
+  liftIO $ do
+    removeIfExists (statusFile (NS.serviceName ns))
+    Netns.remove ns
+    removePathForcibly (keysDirectory ns)
+    mapM_ removeIfExists [desiredFile ns, Apply.pskStatus (paths ns)]
+  -- Its linked workloads no longer resolve the services it forwarded.
+  cleared <- trySync . liftIO $ do
+    configured <- optionalFile (readJson (Apply.settings (paths ns)))
+    dns <- readDns
+    forM_ configured $ \c -> writeRouted dns ns (Apply.forwarded c) []
+  either (logLine . ("Could not clear forwarded DNS zones: " ++) . describe) pure cleared
 
 -- Apply runs after the workload's secret targets, so an unreadable credential
 -- revokes its link.
@@ -308,14 +316,13 @@ desire n ns desired = do
 
 assign :: (Server es) => NS.Workload -> InstanceId -> Eff es ()
 assign ns ident = do
-  service <- liftIO (prepare ns >> settingsId <$> readJson (Apply.settings (paths ns)))
-  address ns service ident
-  liftIO (atomicWritePrivate (instanceFile ns) (encodeState instanceVersion (service, ident)))
+  configured <- liftIO (prepare ns >> readJson (Apply.settings (paths ns)))
+  address ns configured ident
+  liftIO (atomicWritePrivate (instanceFile ns) (encodeState instanceVersion (settingsId configured, ident)))
 
-address :: (Server es) => NS.Workload -> ServiceId -> InstanceId -> Eff es ()
-address ns service ident = do
-  mesh <- asks (prefix . config)
-  liftIO (Netns.configureAddress ns service mesh ident)
+address :: (Server es) => NS.Workload -> Settings -> InstanceId -> Eff es ()
+address ns configured ident =
+  liftIO (Netns.configureAddress ns (settingsId configured) (settingsPrefix configured) ident)
 
 -- A workload's key stores and applied state go once it left the inventory
 -- and is down.
@@ -351,9 +358,8 @@ applyState ::
   Maybe D.Desired ->
   Maybe D.Desired ->
   Eff es Apply.Outcome
-applyState unreadable ns previous desired = do
-  mesh <- asks (prefix . config)
-  liftIO (Apply.apply unreadable ns mesh (paths ns) previous desired)
+applyState unreadable ns previous desired =
+  liftIO (Apply.apply unreadable ns (paths ns) previous desired)
 
 -- Writes the changed key stores durably in the background. An fsync can take
 -- long, so the apply, its reply and other workloads do not wait for it. Work
@@ -369,13 +375,29 @@ persist ns outcome = do
     atomically (modifyTVar' queue (Map.insertWith Map.union name writes))
     background (locked name (pure ()))
 
--- Publishes the workload's status and DNS zone.
+-- Publishes the workload's status and DNS zones, including those of the
+-- services it forwards in its linked workloads' views.
 finish :: NS.Workload -> Apply.Outcome -> IO ()
 finish ns outcome = do
   publish ns outcome
-  zones <- readZones
-  forM_ (Map.lookup (NS.serviceName ns) zones) $ \z ->
+  dns <- readDns
+  forM_ (Map.lookup (NS.serviceName ns) (views dns)) $ \z -> do
     Dns.writeZone (serverAddress z) (zone z) (Apply.installed outcome)
+    Dns.writeNames (serverAddress z) (namesZone z) (Apply.named outcome)
+  writeRouted dns ns (Apply.forwarding outcome) (Apply.installed outcome)
+
+-- Each view only takes the zone of a routed service from the workload it
+-- reaches the service through.
+writeRouted :: Dns -> NS.Workload -> [(String, [ServiceId])] -> [(ServiceId, Text)] -> IO ()
+writeRouted dns ns forwarding installed =
+  forM_ forwarding $ \(client, services) -> forM_ services $ \service -> do
+    let target = do
+          z <- Map.lookup client (views dns)
+          r <- Map.lookup client (routed dns) >>= Map.lookup service
+          guard (router r == Just (NS.serviceName ns))
+          pure (serverAddress z, routedZone r)
+    forM_ target $ \(server, path) ->
+      Dns.writeRouted server path service [at | (s, at) <- installed, s == service]
 
 publish :: NS.Workload -> Apply.Outcome -> IO ()
 publish ns outcome = do
@@ -390,14 +412,25 @@ publish ns outcome = do
   unless (current == Just status) $
     atomicWriteWithMode 0o644 (statusFile (NS.serviceName ns)) (encodeState statusVersion status)
 
--- The DNS server address and zone file of each workload's view.
-data Zone = Zone {serverAddress :: Text, zone :: FilePath} deriving (Generic)
+-- The DNS server address and zone files of each workload's view.
+data Zone = Zone {serverAddress :: Text, zone :: FilePath, namesZone :: FilePath} deriving (Generic)
 
 instance FromJSON Zone
 
-readZones :: IO (Map String Zone)
-readZones = do
+-- The zone of a service that a view reaches through a linked workload.
+data Routed = Routed {router :: Maybe String, routedZone :: FilePath}
+
+instance FromJSON Routed where
+  parseJSON = withObject "mesh routed zone" $ \o -> Routed <$> o .: "router" <*> o .: "zone"
+
+-- Each workload's view, and the zones of the services it reaches through
+-- linked workloads.
+data Dns = Dns {views :: Map String Zone, routed :: Map String (Map ServiceId Routed)}
+
+readDns :: IO Dns
+readDns = do
   -- The file is a symlink into the current system generation.
   inventory <- optionalFile (readJson "/etc/idr-mesh/dns.json")
-  let services = parseEither (withObject "mesh DNS inventory" (.: "services"))
-  maybe (pure Map.empty) (either fail pure . services) inventory
+  let parse = parseEither . withObject "mesh DNS inventory" $ \o ->
+        Dns <$> o .: "services" <*> o .:? "routed" .!= Map.empty
+  maybe (pure (Dns Map.empty Map.empty)) (either fail pure . parse) inventory

@@ -16,7 +16,7 @@
   # password as a runtime secret instead, so alpha sets that user's password.
   etcdFixtures = ../../devshell/checks/fixtures/etcd;
   rbac = configs: let
-    derived = top.idr-lib.meshRbac (lib.mapAttrs (_: config: {inherit config;}) configs);
+    derived = top.idr-lib.meshRbac "main" (lib.mapAttrs (_: config: {inherit config;}) configs);
   in
     lib.recursiveUpdate derived {
       users = lib.optionalAttrs (derived.users ? mesh-beta) {mesh-beta.password = secret "etcd-password-mesh-beta";};
@@ -164,8 +164,8 @@ in {
     };
     idr.mesh = {
       enable = true;
-      ipv6Prefix = prefix;
-      etcd = {
+      etcd.main = {
+        ipv6Prefix = prefix;
         endpoint = "http://main.etcd.internal:1023";
         inherit leaseTTLSeconds;
       };
@@ -184,7 +184,7 @@ in {
   nodes = lib.mkMerge [
     (lib.mapAttrs (name: instance: {
         idr.mesh.publicAddresses = [instance.address];
-        idr.mesh.etcd =
+        idr.mesh.etcd.main =
           {username = "mesh-${name}";}
           // (
             if name == "beta"

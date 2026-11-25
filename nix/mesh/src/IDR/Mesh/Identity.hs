@@ -13,6 +13,7 @@ module IDR.Mesh.Identity
     parseServiceId,
     parseInstanceId,
     instanceIdFromWord32,
+    localInstance,
     serviceIdText,
     instanceIdText,
     lowerHex,
@@ -76,6 +77,11 @@ parseInstanceId t
 
 instanceIdFromWord32 :: Word32 -> InstanceId
 instanceIdFromWord32 n = InstanceId (T.justifyRight 8 '0' (T.pack (showHex n "")))
+
+-- The instance ID that a service has on the links to peers on its own machine.
+-- No registration claims it.
+localInstance :: InstanceId
+localInstance = instanceIdFromWord32 0
 
 serviceIdText :: ServiceId -> Text
 serviceIdText (ServiceId t) = t
