@@ -1,5 +1,14 @@
 top: {lib, ...}: {
-  perSystem = {pkgs, ...}: {
+  perSystem = {pkgs, ...}: let
+    # A renewal of gamma's certificate, from another CA so that the served
+    # certificate tells the two apart.
+    renewed = pkgs.runCommand "etcd-rbac-renewed-certificate" {nativeBuildInputs = [pkgs.openssl];} ''
+      mkdir $out
+      openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:prime256v1 -nodes -days 3650 \
+        -subj /CN=etcd-gamma.example.test -addext subjectAltName=DNS:etcd-gamma.example.test \
+        -keyout $out/key.pem -out $out/cert.pem
+    '';
+  in {
     checks.etcd-rbac = pkgs.testers.runNixOSTest {
       imports = [(lib.modules.importApply ./etcd-auth-fixture.nix {inherit top;})];
       name = "etcd-rbac";
@@ -38,7 +47,10 @@ top: {lib, ...}: {
           };
         };
       };
-      testScript = ''
+      nodes.gamma = {pkgs, ...}: {environment.systemPackages = [pkgs.openssl];};
+      testScript = {nodes, ...}: let
+        secret = name: nodes.gamma.idr.secrets.${name}.path;
+      in ''
         import json
 
         start_all()
@@ -105,6 +117,22 @@ top: {lib, ...}: {
             assert alpha.succeed(f"systemctl show {controller} --property=FragmentPath --value").strip() == old_unit
             assert alpha.succeed(f"systemctl show {controller} --property=InvocationID --value").strip() != old_invocation
             assert json.loads(alpha.succeed(admin + "user get root --write-out=json"))["roles"] == ["root"]
+
+        with subtest("a renewed member certificate applies without restarting etcd"):
+            member = "idr-etcd-main@gamma.service"
+            invocation = gamma.succeed(f"systemctl show {member} --property=InvocationID --value")
+            gamma.succeed(
+                "cat ${renewed}/cert.pem > \"$(readlink -f ${secret "gamma-cert"})\"",
+                "cat ${renewed}/key.pem > \"$(readlink -f ${secret "gamma-cert-key"})\"",
+            )
+            fingerprint = "openssl x509 -noout -fingerprint -sha256"
+            expected = gamma.succeed(f"{fingerprint} -in ${renewed}/cert.pem").strip()
+            served = (
+                "openssl s_client -connect etcd-gamma.example.test:2379 -servername etcd-gamma.example.test"
+                f" </dev/null 2>/dev/null | {fingerprint}"
+            )
+            gamma.wait_until_succeeds(f"test \"$({served})\" = '{expected}'", timeout=30)
+            assert gamma.succeed(f"systemctl show {member} --property=InvocationID --value") == invocation
       '';
     };
   };

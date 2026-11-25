@@ -138,7 +138,8 @@ in {
       }
       // lib.mapAttrs' (name: instance: let
         unitName = "idr-etcd-${name}";
-        credentials = "/run/credentials/${unitName}.service";
+        # Only to start after the certificate exists: etcd reads the files again
+        # at each TLS handshake, so a renewal needs no restart.
         targets = lib.unique [instance.cert.restartTarget instance.certKey.restartTarget];
         peerURL = address: "http://${top.idr-lib.normalizeHost address}:${toString peerPort}";
       in
@@ -148,7 +149,6 @@ in {
           requires = [deviceUnit];
           wants = targets;
           after = [deviceUnit "network.target"] ++ targets;
-          partOf = targets;
           environment = {
             ETCD_NAME = instance.name;
             ETCD_DATA_DIR = "/var/lib/${unitName}";
@@ -157,8 +157,8 @@ in {
             ETCD_AUTO_COMPACTION_RETENTION = instance.autoCompactionRetention;
             ETCD_QUOTA_BACKEND_BYTES = toString instance.quotaBackendBytes;
             ETCD_WATCH_PROGRESS_NOTIFY_INTERVAL = "5s";
-            ETCD_CERT_FILE = "${credentials}/cert";
-            ETCD_KEY_FILE = "${credentials}/cert-key";
+            ETCD_CERT_FILE = toString instance.cert.path;
+            ETCD_KEY_FILE = toString instance.certKey.path;
             ETCD_INITIAL_CLUSTER_TOKEN = instance.clusterToken;
             ETCD_INITIAL_CLUSTER_STATE = instance.initialClusterState;
             ETCD_INITIAL_CLUSTER = lib.concatStringsSep "," (
@@ -182,7 +182,7 @@ in {
             CapabilityBoundingSet = ["CAP_NET_BIND_SERVICE"];
             StateDirectory = unitName;
             StateDirectoryMode = "0700";
-            LoadCredential = ["cert:${instance.cert.path}" "cert-key:${instance.certKey.path}"];
+            SupplementaryGroups = lib.unique [instance.cert.group instance.certKey.group];
             IOSchedulingClass = "best-effort";
             IOSchedulingPriority = 2;
           };
