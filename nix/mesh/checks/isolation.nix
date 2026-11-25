@@ -234,6 +234,24 @@ top: {lib, ...}: {
               blocked(alpha, cross_service)
               alpha.wait_until_succeeds(request("beta"))
 
+          with subtest("a new etcd password applies without restarting the agent"):
+              agent = beta.succeed("systemctl show idr-mesh-agent.service --property=InvocationID --value")
+              # The RBAC host sets the new password; beta's agent reads it at its next login.
+              for machine in [alpha, beta]:
+                  machine.succeed(
+                      "printf %s public-test-mesh-beta-rotated > /run/mesh-test-secrets/etcd-password-mesh-beta",
+                      "systemctl restart mesh-test-secrets.target",
+                  )
+              alpha.wait_until_succeeds("systemctl is-active idr-etcd-rbac-main.service")
+              # Retiring the stopped workload and registering it again need logins
+              # with the new password.
+              beta.succeed("systemctl stop app.service")
+              beta.wait_until_fails("test -e /run/idr-mesh-agent/registered/app", timeout=60)
+              beta.succeed("systemctl start app.service")
+              wait_registered(beta)
+              assert beta.succeed("systemctl show idr-mesh-agent.service --property=InvocationID --value") == agent
+              alpha.wait_until_succeeds(request("beta"))
+
           with subtest("a workload uses at most the declared number of a peer's instances"):
               beta_id = instances["beta"]["id"]
               real = alpha.succeed("jq -r '.state.peers[0].instanceId' /run/idr-mesh-apply/app/desired.json").strip()

@@ -49,9 +49,8 @@ in {
         description = "Mesh agent";
         wantedBy = ["multi-user.target"];
         requires = ["idr-mesh-agent.socket"];
-        wants = ["network-online.target" "idr-mesh-netd.socket"] ++ meshEtcd.restartTargets;
-        after = ["network-online.target" "idr-mesh-agent.socket" "idr-mesh-netd.socket"] ++ meshEtcd.restartTargets;
-        partOf = meshEtcd.restartTargets;
+        wants = ["network-online.target" "idr-mesh-netd.socket"] ++ meshEtcd.targets;
+        after = ["network-online.target" "idr-mesh-agent.socket" "idr-mesh-netd.socket"] ++ meshEtcd.targets;
         # A changed inventory reloads the agent, which reconciles its workloads.
         reloadTriggers = [config.environment.etc."idr-mesh/services.json".source];
         unitConfig = {
@@ -60,21 +59,18 @@ in {
         };
         serviceConfig = {
           Type = "exec";
-          # %d is the directory of the clusters' passwords.
-          ExecStart =
-            utils.escapeSystemdExecArgs (
-              [meshExe "agent"]
-              ++ lib.concatMap (address: ["--public-address" address]) cfg.publicAddresses
-              ++ [port meshEtcd.clusters]
-            )
-            + " %d";
+          ExecStart = utils.escapeSystemdExecArgs (
+            [meshExe "agent"]
+            ++ lib.concatMap (address: ["--public-address" address]) cfg.publicAddresses
+            ++ [port meshEtcd.clusters]
+          );
           ExecReload = "${lib.getExe' pkgs.coreutils "kill"} -HUP $MAINPID";
           # A stopped agent holds no registration, however it stopped.
           ExecStopPost = "${lib.getExe' pkgs.coreutils "rm"} -rf /run/idr-mesh-agent/registered";
           Restart = "always";
           RestartSec = "5s";
           DynamicUser = true;
-          SupplementaryGroups = ["idr-mesh"];
+          SupplementaryGroups = ["idr-mesh"] ++ meshEtcd.groups;
           StateDirectory = state;
           StateDirectoryMode = "0700";
           RuntimeDirectory = ["idr-mesh-agent" "idr-mesh-addresses"];
@@ -82,7 +78,6 @@ in {
           # Retained discovery snapshots keep peers usable while etcd is
           # unreachable, also across a stop and start of the agent.
           RuntimeDirectoryPreserve = true;
-          LoadCredential = meshEtcd.credentials;
           CapabilityBoundingSet = "";
           ProtectHome = true;
           UMask = "0077";

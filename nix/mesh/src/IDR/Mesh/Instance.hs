@@ -49,7 +49,7 @@ import IDR.Mesh.Namespace qualified as NS
 import IDR.Mesh.Netd qualified as Netd
 import IDR.Mesh.PeerData qualified as Peer
 import System.Directory (createDirectoryIfMissing, doesFileExist)
-import System.FilePath ((</>))
+import System.FilePath (isAbsolute, (</>))
 
 data Registrar = Registrar
   { healthPort :: Int,
@@ -59,10 +59,9 @@ data Registrar = Registrar
 
 data Cluster = Cluster {leaseTTL :: Seconds, server :: Server}
 
--- The agent's etcd clusters, each with the name of the credential that holds
--- its password.
-readClusters :: FilePath -> FilePath -> IO (Map Peer.MeshPrefix Cluster)
-readClusters file credentials = do
+-- The agent's etcd clusters, each with the file that holds its password.
+readClusters :: FilePath -> IO (Map Peer.MeshPrefix Cluster)
+readClusters file = do
   listed <- readJson file >>= either fail pure . parseEither (mapM cluster)
   let prefixes = map fst listed
   unless (Peer.unique prefixes) $ fail "Each mesh prefix needs its own etcd cluster"
@@ -72,12 +71,11 @@ readClusters file credentials = do
       prefix <- o .: "ipv6Prefix"
       ttl <- o .: "leaseTTLSeconds" :: Parser Integer
       lease <- either fail pure (parseSeconds 1 9_000_000_000 (show ttl))
-      credential <- o .: "credential"
-      unless (validCredential credential) $ fail "Invalid mesh etcd credential name"
+      passwordFile <- o .: "passwordFile"
+      unless (isAbsolute passwordFile) $ fail "Expected an absolute mesh etcd password path"
       endpoint <- o .: "endpoint"
       user <- o .: "username"
-      pure (prefix, Cluster lease (Server endpoint user (credentials </> credential)))
-    validCredential name = not (null name) && all (`notElem` ("/\0" :: String)) name && name `notElem` [".", ".."]
+      pure (prefix, Cluster lease (Server endpoint user passwordFile))
 
 -- The etcd cluster that holds a mesh.
 clusterOf :: (Reader Registrar :> es, IOE :> es) => Peer.MeshPrefix -> Eff es Cluster

@@ -13,19 +13,17 @@ top: {
   # A package-only switch must not tear down resources held by active oneshots.
   setupTarget = "idr-mesh/bin/idr-mesh";
   setupExe = "/etc/${setupTarget}";
-  # systemd expands % specifiers in LoadCredential= values.
-  literal = lib.replaceStrings ["%"] ["%%"];
-  loadCredential = name: secret: "${name}:${literal (toString secret.path)}";
-  # Each cluster's password becomes a local secret, which the agent loads as a
-  # credential.
+  # Each cluster's password becomes a local secret. The agent reads it at each
+  # login, so a new password needs no restart.
   passwordName = cluster: "idr-mesh-etcd-password-${cluster}";
   passwords = lib.mapAttrs (cluster: _: config.idr.secrets.${passwordName cluster}) cfg.etcd;
   meshEtcd = {
-    credentials = lib.mapAttrsToList (cluster: loadCredential "etcd-${cluster}") passwords;
-    restartTargets = lib.unique (lib.mapAttrsToList (_: password: password.restartTarget) passwords);
+    groups = lib.unique (lib.mapAttrsToList (_: password: password.group) passwords);
+    # Only to start after the passwords exist.
+    targets = lib.unique (lib.mapAttrsToList (_: password: password.restartTarget) passwords);
     clusters = pkgs.writeText "idr-mesh-etcd.json" (builtins.toJSON (lib.mapAttrsToList (cluster: settings: {
         inherit (settings) ipv6Prefix leaseTTLSeconds endpoint username;
-        credential = "etcd-${cluster}";
+        passwordFile = toString passwords.${cluster}.path;
       })
       cfg.etcd));
   };

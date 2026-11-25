@@ -185,12 +185,11 @@ connect limits expected (Server url username passwordFile) use = do
 
 authenticateWith :: Int -> String -> FilePath -> IO Login
 authenticateWith seconds username passwordFile = do
-  bytes <- BS.dropWhileEnd (\c -> c == 10 || c == 13) <$> readRegularFile passwordFile
-  password <- either (const $ fail "Invalid etcd password encoding") pure (T.decodeUtf8' bytes)
-  when (null username || T.null password || T.any (== '\0') password) $
-    fail "Invalid etcd credentials"
-  let request = defMessage & #name .~ T.pack username & #password .~ password
+  -- Unusable credentials fail the connection at once. Each login reads the
+  -- file again, so a new password applies without a restart.
+  _ <- credentials
   pure $ \expected beforeSend channel -> do
+    request <- credentials
     -- Auth-enabled etcd requires a user for Maintenance.Status. An empty
     -- transaction reads and writes no keys and returns the member's cluster
     -- header before we disclose the password on this channel.
@@ -204,6 +203,13 @@ authenticateWith seconds username passwordFile = do
     let token = response ^. #token
     when (T.null token) $ fail "etcd returned an empty authentication token"
     pure (cluster, Token (Just (T.encodeUtf8 token)))
+  where
+    credentials = do
+      bytes <- BS.dropWhileEnd (\c -> c == 10 || c == 13) <$> readRegularFile passwordFile
+      password <- either (const $ fail "Invalid etcd password encoding") pure (T.decodeUtf8' bytes)
+      when (null username || T.null password || T.any (== '\0') password) $
+        fail "Invalid etcd credentials"
+      pure (defMessage & #name .~ T.pack username & #password .~ password)
 
 -- grpc-proxy can preserve an upstream etcd error's description while
 -- reporting UNKNOWN as its status. Only match the specific server error.

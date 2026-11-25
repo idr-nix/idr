@@ -66,12 +66,11 @@ import System.INotify (EventVariety (Delete, MoveIn), addWatch, initINotify, kil
 import System.Posix.Signals (Handler (Catch), installHandler, sigHUP)
 import System.Timeout (timeout)
 
--- The health port, the file that lists the etcd clusters, the directory of
--- their passwords, and the addresses to advertise instead of discovered ones.
+-- The health port, the file that lists the etcd clusters, and the addresses to
+-- advertise instead of discovered ones.
 data Config = Config
   { healthPort :: Int,
     clustersFile :: FilePath,
-    credentials :: FilePath,
     explicitAddresses :: [IP]
   }
 
@@ -96,7 +95,7 @@ run :: Config -> IO ()
 run config = withActivatedSockets $ \case
   [netlink] -> do
     requireSocket [AF_ROUTE] Raw netlink
-    registrar <- Instance.Registrar (healthPort config) <$> Instance.readClusters (clustersFile config) (credentials config)
+    registrar <- Instance.Registrar (healthPort config) <$> Instance.readClusters (clustersFile config)
     signals <- Signals <$> STM.newTVarIO 0 <*> STM.newTVarIO True
     -- systemd reloads the agent when the inventory changes.
     void $ installHandler sigHUP (Catch (wake signals)) Nothing

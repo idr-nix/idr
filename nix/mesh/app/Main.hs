@@ -44,7 +44,6 @@ agent =
   Agent.Config
     <$> readArg "HEALTH-PORT" parsePort
     <*> arg "CLUSTERS"
-    <*> arg "CREDENTIALS-DIRECTORY"
     <*> many publicAddress
   where
     publicAddress =

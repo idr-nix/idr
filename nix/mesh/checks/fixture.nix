@@ -154,9 +154,10 @@ in {
     systemd.tmpfiles.rules = [
       "d /var/lib/sops-nix 0700 root root -"
       "C /var/lib/sops-nix/key.txt 0400 root root - ${../../devshell/checks/fixtures/runtime-secrets/key.txt}"
-      "d /run/mesh-test-secrets 0700 root root -"
+      # Secret references follow idr's secrets: mode 0440, readable by their group.
+      "d /run/mesh-test-secrets 0750 root root -"
       "C /run/mesh-test-secrets/psk 0400 root root - ${pkgs.writeText "mesh-test-psk" psk}"
-      "C /run/mesh-test-secrets/etcd-password-mesh-beta 0400 root root - ${pkgs.writeText "mesh-test-etcd-password" "public-test-mesh-beta"}"
+      "C /run/mesh-test-secrets/etcd-password-mesh-beta 0440 root root - ${pkgs.writeText "mesh-test-etcd-password" "public-test-mesh-beta"}"
     ];
     systemd.targets.mesh-test-secrets = {
       requires = ["systemd-tmpfiles-setup.service"];

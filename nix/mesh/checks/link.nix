@@ -39,7 +39,7 @@ top: {lib, ...}: {
 
       defaults = {
         systemd.tmpfiles.rules = [
-          "C /run/mesh-test-secrets/etcd-password-other 0400 root root - ${pkgs.writeText "mesh-test-etcd-password" "public-test-other"}"
+          "C /run/mesh-test-secrets/etcd-password-other 0440 root root - ${pkgs.writeText "mesh-test-etcd-password" "public-test-other"}"
         ];
         idr.mesh = {
           defaultEtcd = "main";
